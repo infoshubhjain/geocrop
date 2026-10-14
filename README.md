@@ -86,7 +86,7 @@ Build a self-contained app image with Docker and run it on port 8000:
 docker compose up --build
 ```
 
-Then check `http://localhost:8000/api/health` and visit `http://localhost:8000`. The image includes the static frontend and geospatial API. No database or paid services are needed. Live catalog and imagery requests use public services with their own availability and rate limits. A deployment provider, storage, high-volume tile service, or compute service has not been enabled; assess its cost and terms before selecting one. This repository is not deployed and has no live application URL.
+Then check `http://localhost:8000/api/health` and visit `http://localhost:8000`. The image includes the static frontend and geospatial API. No database or paid services are needed. Live catalog and imagery requests use public services with their own availability and rate limits. `render.yaml` prepares an optional free Render Blueprint; connect the repository and explicitly create the service to deploy it. No hosting account was connected from this workspace, so there is no live URL yet. Render free services can spin down while idle and have usage limits; review the [current free-plan details](https://render.com/docs/free) before deployment.
 
 For production, terminate TLS at the host, keep the app private until access controls and operational rate limiting are configured, use an appropriate tile provider, and review public API exposure. The included in-process per-IP limiter is for a small demonstrator, not a substitute for a production gateway. Uploaded files are processed in memory and discarded. Farm boundaries remain in browser/server memory for the request only.
 
