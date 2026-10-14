@@ -7,9 +7,11 @@ type Observation = {
   ndvi: number | null;
   ndmi: number | null;
   pixel_count: number;
+  masked_pixel_count?: number;
   cloud_percent: number | null;
   nodata_percent?: number;
   resolution_m?: number | null;
+  ndvi_percentiles?: { p10: number; p50: number; p90: number };
   mask: string;
 };
 type Result = {
@@ -69,7 +71,7 @@ app.innerHTML = `
       <div id="results" hidden>
         <div class="result-head"><div><span class="eyebrow">VEGETATION INDICATORS</span><h2 id="result-title">Seasonal profile</h2></div><button id="export-btn" class="icon-button" title="Export CSV" aria-label="Export CSV">↧</button></div>
         <div id="data-badge" class="data-badge"></div>
-        <div class="chart-legend"><span><i class="swatch ndvi"></i>NDVI</span><span><i class="swatch ndmi"></i>NDMI</span><span id="chart-range" class="muted"></span></div>
+        <div class="chart-legend"><span><i class="swatch ndvi"></i>NDVI</span><span id="ndmi-legend"><i class="swatch ndmi"></i>NDMI</span><span id="chart-range" class="muted"></span></div>
         <div id="chart" class="chart" role="img" aria-label="NDVI and NDMI time series"></div>
         <div id="scene-list" class="scene-list"></div>
         <div class="quality-grid"><div><span id="cloud-label" class="eyebrow">AOI CLOUD</span><strong id="cloud-value">—</strong></div><div><span class="eyebrow">VALID PIXELS</span><strong id="pixel-value">—</strong></div><div><span class="eyebrow">FIELD AREA</span><strong id="area-value">—</strong></div></div>
@@ -237,7 +239,7 @@ $("source-mode").addEventListener("change", () => {
   $<HTMLInputElement>("end-date").disabled = mode === "import";
   $("source-note").textContent =
     mode === "live"
-      ? "Your boundary and dates go to Planetary Computer for live scenes. GeoCrop does not store them. Catalog metadata is not analyzed as field pixels."
+      ? "Searches Planetary Computer scenes. Select a scene to compute NDVI from bounded, cloud-masked Sentinel-2 pixels."
       : mode === "import"
         ? "Imported values are labeled user supplied and are not independently verified."
         : "Synthetic reflectance fixture for the sample Iowa field only; no satellite observations.";
@@ -312,7 +314,7 @@ function showScenes(scenes: Scene[], cached: boolean) {
     `LIVE CATALOG · ${cached ? "cached 5 min" : "fresh metadata"} · not analyzed`;
   $("data-badge").className = "data-badge live";
   $("chart").innerHTML =
-    '<div class="empty-state">Live catalog search returns acquisition metadata and coverage. Pixel analysis requires downloading large COG assets; use the synthetic fixture or import a reflectance GeoTIFF for index calculations.</div>';
+    '<div class="empty-state">Choose a scene below to analyze actual Sentinel-2 pixels over the selected field.</div>';
   const sceneCloud = scenes
     .map((scene) => scene.cloud_percent)
     .filter((value): value is number => value !== null);
@@ -352,6 +354,31 @@ function showScenes(scenes: Scene[], cached: boolean) {
     previewButton.type = "button";
     previewButton.className = "preview-control";
     previewButton.textContent = "Load true-color preview";
+    const analyzeButton = document.createElement("button");
+    analyzeButton.type = "button";
+    analyzeButton.className = "preview-control analyze-control";
+    analyzeButton.textContent = "Analyze NDVI pixels";
+    analyzeButton.setAttribute("aria-label", `Analyze NDVI pixels from Sentinel-2 scene ${scene.id}`);
+    analyzeButton.addEventListener("click", async () => {
+      analyzeButton.disabled = true;
+      analyzeButton.textContent = "Processing bounded pixel window…";
+      setFeedback("Signing the public scene assets and processing the selected field window.");
+      try {
+        const response = await fetch("/api/analysis/live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ aoi: geo().geometry, item_id: scene.id }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Sentinel-2 pixel analysis failed.");
+        latest = data;
+        render(data);
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : "Sentinel-2 pixel analysis failed.", true);
+        analyzeButton.disabled = false;
+        analyzeButton.textContent = "Retry pixel analysis";
+      }
+    });
     previewButton.addEventListener("click", () => {
       $("scene-list")
         .querySelectorAll(".scene-preview")
@@ -375,7 +402,7 @@ function showScenes(scenes: Scene[], cached: boolean) {
         previewButton.textContent = "Preview loaded · up to 512 px";
       };
     });
-    actions.append(source, previewButton);
+    actions.append(source, previewButton, analyzeButton);
     row.append(title, meta, actions);
     $("scene-list").append(row);
   }
@@ -409,16 +436,17 @@ function render(data: Result) {
   footprintLayer?.remove();
   footprintLayer = undefined;
   const obs = data.observations || [];
+  $("ndmi-legend").toggleAttribute("hidden", data.source === "live-sentinel-pixels" || !obs.some((item) => item.ndmi !== null));
   $("results").removeAttribute("hidden");
-  $("result-title").textContent = "Seasonal profile";
+  $("result-title").textContent = data.source === "live-sentinel-pixels" ? "Sentinel-2 pixel analysis" : "Seasonal profile";
   $("data-badge").textContent =
     data.source_label || "USER IMPORT · source values supplied by user";
   $("data-badge").className =
-    `data-badge ${data.source === "synthetic-demo" ? "demo" : "imported"}`;
+    `data-badge ${data.source === "synthetic-demo" ? "demo" : data.source === "live-sentinel-pixels" ? "live" : "imported"}`;
   $("area-value").textContent =
     data.area_ha == null ? "—" : `${data.area_ha.toFixed(1)} ha`;
   $("cloud-label").textContent =
-    data.source === "synthetic-demo" ? "MEAN AOI CLOUD" : "CLOUD DATA";
+    data.source === "synthetic-demo" ? "MEAN AOI CLOUD" : data.source === "live-sentinel-pixels" ? "SCENE CLOUD" : "CLOUD DATA";
   const clouds = obs
     .map((o) => o.cloud_percent)
     .filter((x): x is number => x !== null);
@@ -439,7 +467,9 @@ function render(data: Result) {
     const title = document.createElement("strong");
     title.textContent = `${latestObs.date} · ${latestObs.resolution_m ?? "unknown"} m`;
     const meta = document.createElement("span");
-    meta.textContent = `Cloud ${latestObs.cloud_percent ?? "n/a"}% · nodata ${latestObs.nodata_percent ?? "not reported"}% · ${latestObs.mask}`;
+    meta.textContent = data.source === "live-sentinel-pixels"
+      ? `NDVI ${latestObs.ndvi?.toFixed(3)} · p10 ${latestObs.ndvi_percentiles?.p10.toFixed(3)} / p50 ${latestObs.ndvi_percentiles?.p50.toFixed(3)} / p90 ${latestObs.ndvi_percentiles?.p90.toFixed(3)} · ${latestObs.pixel_count.toLocaleString()} valid of ${(latestObs.pixel_count + (latestObs.masked_pixel_count || 0)).toLocaleString()} AOI pixels · ${latestObs.mask}`
+      : `Cloud ${latestObs.cloud_percent ?? "n/a"}% · nodata ${latestObs.nodata_percent ?? "not reported"}% · ${latestObs.mask}`;
     row.append(title, meta);
     $("scene-list").append(row);
   }
@@ -489,14 +519,15 @@ function drawChart(observations: Observation[]) {
           "'": "&#39;",
         })[char]!,
     );
+  const hasNdmi = observations.some((o) => o.ndmi !== null);
   const nodes = observations
     .map(
       (o, i) =>
-        `<circle cx="${x(i)}" cy="${y(o.ndvi)}" r="3.5" fill="#c76a3d"><title>${safe(o.date)} NDVI ${o.ndvi?.toFixed(3)}</title></circle><circle cx="${x(i)}" cy="${y(o.ndmi)}" r="3" fill="#4f8874"><title>${safe(o.date)} NDMI ${o.ndmi?.toFixed(3)}</title></circle>`,
+        `<circle cx="${x(i)}" cy="${y(o.ndvi)}" r="3.5" fill="#c76a3d"><title>${safe(o.date)} NDVI ${o.ndvi?.toFixed(3)}</title></circle>${o.ndmi === null ? "" : `<circle cx="${x(i)}" cy="${y(o.ndmi)}" r="3" fill="#4f8874"><title>${safe(o.date)} NDMI ${o.ndmi?.toFixed(3)}</title></circle>`}`,
     )
     .join("");
   $("chart").innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="NDVI and NDMI from ${safe(observations[0].date)} to ${safe(observations.at(-1)?.date || "")}"><path class="gridline" d="M${pad} ${y(1)}H${W - pad} M${pad} ${y(0.5)}H${W - pad} M${pad} ${y(0)}H${W - pad}"/><path class="line-ndvi" d="${path("ndvi")}"/><path class="line-ndmi" d="${path("ndmi")}"/>${nodes}<text x="${pad}" y="${H - 3}">${safe(observations[0].date.slice(5))}</text><text x="${W - pad - 36}" y="${H - 3}">${safe(observations.at(-1)?.date.slice(5) || "")}</text></svg>`;
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${hasNdmi ? "NDVI and NDMI" : "NDVI"} from ${safe(observations[0].date)} to ${safe(observations.at(-1)?.date || "")}"><path class="gridline" d="M${pad} ${y(1)}H${W - pad} M${pad} ${y(0.5)}H${W - pad} M${pad} ${y(0)}H${W - pad}"/><path class="line-ndvi" d="${path("ndvi")}"/>${hasNdmi ? `<path class="line-ndmi" d="${path("ndmi")}"/>` : ""}${nodes}<text x="${pad}" y="${H - 3}">${safe(observations[0].date.slice(5))}</text><text x="${W - pad - 36}" y="${H - 3}">${safe(observations.at(-1)?.date.slice(5) || "")}</text></svg>`;
 }
 
 $("export-btn").addEventListener("click", () => {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from collections import defaultdict
@@ -13,13 +14,14 @@ import httpx
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from rasterio.io import MemoryFile
 from rasterio.mask import mask as raster_mask
 from rasterio.warp import transform_geom
 from starlette.datastructures import UploadFile
 
 from .geo import supports_synthetic, synthetic_scene, validate_aoi, validate_dates
+from .live import MAX_LIVE_PIXELS, analyze_cogs
 
 STAC_URL = os.getenv("GEOCROP_STAC_URL", "https://planetarycomputer.microsoft.com/api/stac/v1")
 parsed_stac = urlparse(STAC_URL)
@@ -38,6 +40,7 @@ MAX_DATE_DAYS = int(os.getenv("GEOCROP_MAX_DATE_DAYS", "1095"))
 MAX_IMPORT_BYTES = 20 * 1024 * 1024
 BODY_SLOTS = asyncio.Semaphore(4)
 IMPORT_SLOTS = asyncio.Semaphore(2)
+LIVE_SLOTS = asyncio.Semaphore(2)
 app = FastAPI(title="GeoCrop API", version="0.1.0")
 # shortcut: process-local cache is ephemeral; use shared storage if running multiple replicas.
 cache: dict[str, tuple[float, dict]] = {}
@@ -49,6 +52,33 @@ class AnalysisRequest(BaseModel):
     aoi: dict
     start: date
     end: date
+
+
+class LiveAnalysisRequest(BaseModel):
+    aoi: dict
+    item_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+
+
+async def bounded_json(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    method: str = "GET",
+    json_body: dict | None = None,
+    params: dict | None = None,
+    limit: int = 1_000_000,
+) -> dict:
+    async with client.stream(method, url, json=json_body, params=params) as response:
+        response.raise_for_status()
+        if int(response.headers.get("content-length", "0") or 0) > limit:
+            raise ValueError("Provider response exceeded its size limit.")
+        chunks, size = [], 0
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
+            if size > limit:
+                raise ValueError("Provider response exceeded its size limit.")
+            chunks.append(chunk)
+    return json.loads(b"".join(chunks))
 
 
 def checked(payload: AnalysisRequest):
@@ -107,16 +137,15 @@ async def search(payload: AnalysisRequest):
     }
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(8), follow_redirects=False) as client:
-            response = None
             for attempt in range(2):
                 try:
-                    response = await client.post(f"{STAC_URL}/search", json=body)
-                    response.raise_for_status()
+                    data = await bounded_json(
+                        client, f"{STAC_URL}/search", method="POST", json_body=body
+                    )
                     break
                 except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError):
                     if attempt == 1:
                         raise
-            data = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(
             502, "Live catalog is unavailable. Try again or use the labeled demo data."
@@ -148,6 +177,114 @@ async def search(payload: AnalysisRequest):
     if len(cache) > 256:
         cache.pop(next(iter(cache)))
     return result
+
+
+@app.post("/api/analysis/live")
+async def live_analysis(payload: LiveAnalysisRequest):
+    try:
+        geom, area = validate_aoi(payload.aoi, MAX_AOI_HA)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    item_url = f"{STAC_URL}/collections/sentinel-2-l2a/items/{quote(payload.item_id, safe='')}"
+    sas_url = "https://planetarycomputer.microsoft.com/api/sas/v1/sign"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8), follow_redirects=False) as client:
+            item = await bounded_json(client, item_url)
+            if item.get("collection") != "sentinel-2-l2a" or item.get("id") != payload.item_id:
+                raise ValueError(
+                    "Selected record is not a Sentinel-2 L2A scene from the configured catalog."
+                )
+            asset_data = item.get("assets", {})
+            hrefs = {}
+            scales = {}
+            for name in ("B04", "B08", "SCL"):
+                asset = asset_data.get(name)
+                href = asset.get("href") if isinstance(asset, dict) else None
+                parsed = urlparse(href or "")
+                if (
+                    parsed.scheme != "https"
+                    or not parsed.hostname
+                    or not parsed.hostname.endswith(".blob.core.windows.net")
+                ):
+                    raise ValueError(
+                        f"The scene has no supported public {name} Cloud-Optimized GeoTIFF asset."
+                    )
+                if name != "SCL":
+                    band = (asset.get("raster:bands") or [{}])[0]
+                    scales[name] = (float(band.get("scale", 0.0001)), float(band.get("offset", 0)))
+                hrefs[name] = href
+
+            async def sign(href: str) -> str:
+                signed = (
+                    await bounded_json(client, sas_url, params={"href": href}, limit=50_000)
+                ).get("href")
+                signed_parsed = urlparse(signed or "")
+                if (
+                    signed_parsed.scheme != "https"
+                    or signed_parsed.hostname != urlparse(href).hostname
+                    or not signed_parsed.query
+                ):
+                    raise ValueError("Planetary Computer returned an invalid signed asset URL.")
+                return signed
+
+            signed_hrefs = await asyncio.gather(
+                *(sign(hrefs[name]) for name in ("B04", "B08", "SCL"))
+            )
+        async with LIVE_SLOTS:
+            stats = await asyncio.to_thread(
+                analyze_cogs, geom.__geo_interface__, *signed_hrefs, scales
+            )
+    except HTTPException:
+        raise
+    except (
+        httpx.HTTPError,
+        ValueError,
+        KeyError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        TimeoutError,
+    ) as exc:
+        message = (
+            str(exc)
+            if isinstance(exc, ValueError)
+            else "The live Sentinel-2 scene could not be processed. Try another scene or use the explicitly labeled demo/import workflows."
+        )
+        raise HTTPException(502, message) from exc
+    props = item.get("properties", {})
+    return {
+        "source": "live-sentinel-pixels",
+        "source_label": "LIVE SENTINEL-2 PIXEL ANALYSIS · not agronomic diagnosis",
+        "area_ha": round(area, 2),
+        "observations": [
+            {
+                "date": (props.get("datetime") or "")[:10],
+                **stats,
+                "ndmi": None,
+                "mask": "SCL classes 0,1,2,3,7,8,9,10,11 excluded; only valid AOI pixels summarized",
+            }
+        ],
+        "provenance": {
+            "provider": "Microsoft Planetary Computer / Copernicus Sentinel-2 L2A",
+            "collection": "sentinel-2-l2a",
+            "scene_id": payload.item_id,
+            "acquired": props.get("datetime"),
+            "scene_cloud_percent": props.get("eo:cloud_cover"),
+            "bands": "B04 red and B08 NIR (10 m); SCL (20 m, nearest-neighbor aligned)",
+            "reflectance_scale": {
+                "B04": {"scale": scales["B04"][0], "offset": scales["B04"][1]},
+                "B08": {"scale": scales["B08"][0], "offset": scales["B08"][1]},
+                "fallback": "scale 0.0001 and offset 0 when STAC raster:bands metadata is absent",
+            },
+            "index": "NDVI=(NIR−Red)/(NIR+Red), unitless; p10/p50/p90 and mean over valid pixels",
+            "valid_pixels": stats["pixel_count"],
+            "masked_pixels": stats["masked_pixel_count"],
+            "processing_limit": f"At most {MAX_LIVE_PIXELS:,} pixels in the B04 scene window",
+            "processing_grid": stats["processing_grid"],
+            "crs": stats["crs"],
+            "coverage_note": "Only pixels overlapping this AOI and selected scene were processed; mixed pixels, cloud-mask errors, and crop-stage interpretation remain possible.",
+        },
+    }
 
 
 @app.post("/api/analysis/demo")

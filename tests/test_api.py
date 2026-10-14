@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
-from geocrop.api import app
+from geocrop.api import app, bounded_json
+from geocrop.live import analyze_cogs
 
 client = TestClient(app)
 SAMPLE = {
@@ -89,10 +90,57 @@ def test_json_body_limit_rejects_chunked_requests_without_content_length():
     anyio.run(check)
 
 
+def test_provider_json_reader_enforces_streamed_response_limit():
+    async def check():
+        async def respond(_request):
+            return httpx.Response(200, content=b'{"padding":"123456"}')
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as mocked:
+            with pytest.raises(ValueError, match="response exceeded"):
+                await bounded_json(mocked, "https://example.test/item", limit=8)
+
+    anyio.run(check)
+
+
 def test_api_errors_and_headers_are_safe():
     response = client.get("/api/health")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
+
+
+def test_live_endpoint_validates_scene_identity_before_provider_access():
+    response = client.post("/api/analysis/live", json={"aoi": SAMPLE, "item_id": "invalid/id"})
+    assert response.status_code == 422
+
+
+def test_cog_analysis_aligns_20m_assets_to_10m_roi_grid():
+    assets = []
+    for resolution, value, dtype in [(10, 0.1, "float32"), (20, 0.4, "float32"), (20, 4, "uint8")]:
+        size = 100 // resolution
+        profile = {
+            "driver": "GTiff",
+            "height": size,
+            "width": size,
+            "count": 1,
+            "dtype": dtype,
+            "crs": "EPSG:32615",
+            "transform": from_origin(458000, 4617000, resolution, resolution),
+        }
+        memory = MemoryFile()
+        with memory.open(**profile) as dataset:
+            dataset.write(np.full((size, size), value, dtype=dtype), 1)
+        assets.append(memory)
+    try:
+        result = analyze_cogs(
+            SAMPLE, *(asset.name for asset in assets), {"B04": (1, 0), "B08": (1, 0)}
+        )
+    finally:
+        for asset in assets:
+            asset.close()
+    assert result["resolution_m"] == 10
+    assert result["processing_grid"].startswith("B04 native 10 m")
+    assert result["pixel_count"] > 0
+    assert result["ndvi"] == pytest.approx(0.6)
 
 
 def test_import_calculates_indices_and_rejects_unscaled_reflectance():

@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from geocrop.geo import GRID_SHAPE, GRID_TRANSFORM, synthetic_scene, validate_aoi, validate_dates
+from geocrop.live import index_summary
 
 SAMPLE = {
     "type": "Polygon",
@@ -54,3 +55,21 @@ def test_synthetic_raster_is_aligned_bounded_masked_and_repeatable():
     assert 0 <= a["cloud_percent"] < 100
     assert 0 <= a["nodata_percent"] < 100
     assert -1 <= a["ndvi"] <= 1 and -1 <= a["ndmi"] <= 1
+
+
+def test_live_ndvi_uses_cloud_and_nodata_masks_and_reports_pixel_counts():
+    result = index_summary(
+        [[0.1, 0.2], [0.0, 0.1]],
+        [[0.3, 0.2], [0.0, 0.3]],
+        [[4, 9], [0, 4]],
+    )
+    assert result["pixel_count"] == 2
+    assert result["masked_pixel_count"] == 2
+    assert result["ndvi"] == pytest.approx(0.5)
+    assert result["cloud_percent"] == 25
+    assert result["ndvi_percentiles"]["p50"] == pytest.approx(0.5)
+
+
+def test_live_ndvi_rejects_a_fully_masked_scene():
+    with pytest.raises(ValueError, match="No valid, cloud-free"):
+        index_summary([[0.1]], [[0.4]], [[9]])

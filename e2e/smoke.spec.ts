@@ -29,7 +29,7 @@ test("coordinate controls center the map and source selector explains live recor
   await expect(page.getByText("Map centered on the coordinate.")).toBeVisible();
   await page.getByLabel("DATA SOURCE").selectOption("live");
   await expect(
-    page.getByText(/Your boundary and dates go to Planetary Computer/),
+    page.getByText(/Searches Planetary Computer scenes/),
   ).toBeVisible();
 });
 
