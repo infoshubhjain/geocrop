@@ -20,7 +20,7 @@ In one terminal run `uvicorn geocrop.api:app --reload`; in another run `npm run 
 ## What works
 
 - Draw a polygon or use latitude/longitude to navigate. Boundaries use WGS84 / EPSG:4326, one valid polygon, no holes, no antimeridian crossing, 0.1–10,000 ha, up to 2,000 vertices. Date spans are limited to 1,095 days.
-- **Synthetic demo:** repeatable hand-authored 10 m reflectance grids; cloud and no-data masks; NDVI/NDMI summaries; time-series and CSV with provenance. All values are labeled synthetic.
+- **Synthetic demo:** repeatable hand-authored 10 m reflectance grid for the sample Iowa field; cloud and no-data masks; NDVI/NDMI summaries; time-series and CSV with provenance. All values are labeled synthetic. Other AOIs are rejected in demo mode rather than returning misleading empty statistics.
 - **Live catalog:** searches the public Microsoft Planetary Computer STAC API for Sentinel‑2 L2A and displays acquisition date, cloud cover, footprint, metadata, and on-demand true-color previews capped at 512 pixels. Metadata and previews are real catalog results. They are **not** used as index measurements.
 - **Import:** calculates NDVI/NDMI from a user-provided GeoTIFF clipped to the selected AOI. Supply red, NIR, and SWIR as bands 1–3, reflectance scaled to 0–1, with a CRS and no more than 5 million pixels / 20 MB. The import date and sensor tags are unverified. No automatic resampling is performed.
 
@@ -62,7 +62,7 @@ Terms and endpoints were checked on 2026-10-14. Provider terms and availability 
 
 Copy `.env.example` only if changing deployment values. The STAC URL defaults to the official Planetary Computer host; never set it from request data. Limits default to 10,000 ha, 1,095 days, 20 live results, 5-minute cache, 60 API requests/minute/IP, a 20 MB import, and 5 million raster pixels. Live search has an 8-second request timeout and one retry. Cache entries are in-memory and disappear on restart. No secrets are required or logged. AOIs are not logged or persisted.
 
-`/api/health` reports process readiness, not upstream provider availability. `/api/catalog/search` validates the AOI and sends it to the configured public catalog. `/api/analysis/demo` and `/api/analysis/import` return AOI statistics. Errors are bounded and user-facing; provider URLs are fixed by the service, not supplied by a browser.
+`/api/health` reports process readiness, not upstream provider availability. `/api/catalog/search` validates the AOI and sends it to the configured public catalog. `/api/analysis/demo` is limited to the sample Iowa AOI; `/api/analysis/import` returns user-raster statistics. Every API request body is streamed through a hard byte cap (1 MB normally; 20 MB plus multipart overhead for imports), even when the request has no `Content-Length`. At most 4 API request bodies and 2 raster imports are buffered/processed at once per process. Errors are bounded and user-facing; provider URLs are fixed by the service, not supplied by a browser.
 
 ## Tests and CI
 

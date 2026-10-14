@@ -7,12 +7,13 @@ from pyproj import Geod, Transformer
 from rasterio.features import geometry_mask
 from rasterio.transform import from_origin
 from shapely import transform as transform_geometry
-from shapely.geometry import shape
+from shapely.geometry import box, shape
 
 GEOD = Geod(ellps="WGS84")
 TO_UTM = Transformer.from_crs("EPSG:4326", "EPSG:32615", always_xy=True)
 GRID_TRANSFORM = from_origin(458000, 4617000, 10, 10)
 GRID_SHAPE = (100, 100)
+SYNTHETIC_EXTENT = box(458000, 4616000, 459000, 4617000)
 
 
 def validate_aoi(geojson: dict, max_area_ha: float = 10_000) -> tuple[object, float]:
@@ -58,6 +59,11 @@ def validate_dates(start: date, end: date, max_days: int = 1095) -> None:
         raise ValueError("End date must be on or after start date.")
     if (end - start).days > max_days:
         raise ValueError(f"Date range is limited to {max_days} days.")
+
+
+def supports_synthetic(geom) -> bool:
+    projected = transform_geometry(geom, TO_UTM.transform, interleaved=False)
+    return SYNTHETIC_EXTENT.covers(projected)
 
 
 def synthetic_scene(index: int, geom) -> dict:

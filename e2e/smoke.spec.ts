@@ -33,7 +33,9 @@ test("coordinate controls center the map and source selector explains live recor
   ).toBeVisible();
 });
 
-test("boundary drawing accepts a field polygon", async ({ page }) => {
+test("boundary drawing accepts a polygon and explains synthetic coverage limits", async ({
+  page,
+}) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Draw boundary/ }).click();
   const map = await page.locator("#map").boundingBox();
@@ -53,9 +55,9 @@ test("boundary drawing accepts a field polygon", async ({ page }) => {
     ),
   ).toBeVisible();
   await page.getByRole("button", { name: /Analyze field/ }).click();
-  await expect(page.getByText(/boundary validated/)).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(
+    page.getByText(/Synthetic demo covers only the sample Iowa field/),
+  ).toBeVisible({ timeout: 15_000 });
 });
 
 test("keyboard-friendly GeoJSON entry selects a boundary", async ({ page }) => {

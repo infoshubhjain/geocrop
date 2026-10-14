@@ -240,7 +240,7 @@ $("source-mode").addEventListener("change", () => {
       ? "Your boundary and dates go to Planetary Computer for live scenes. GeoCrop does not store them. Catalog metadata is not analyzed as field pixels."
       : mode === "import"
         ? "Imported values are labeled user supplied and are not independently verified."
-        : "Deterministic sample data, clearly labeled. No satellite observations.";
+        : "Synthetic reflectance fixture for the sample Iowa field only; no satellite observations.";
   $("analyze-btn").innerHTML =
     mode === "import"
       ? "Analyze imported GeoTIFF <span>→</span>"

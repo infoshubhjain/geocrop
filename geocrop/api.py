@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from collections import defaultdict
+from contextlib import AsyncExitStack
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -17,7 +19,7 @@ from rasterio.mask import mask as raster_mask
 from rasterio.warp import transform_geom
 from starlette.datastructures import UploadFile
 
-from .geo import synthetic_scene, validate_aoi, validate_dates
+from .geo import supports_synthetic, synthetic_scene, validate_aoi, validate_dates
 
 STAC_URL = os.getenv("GEOCROP_STAC_URL", "https://planetarycomputer.microsoft.com/api/stac/v1")
 parsed_stac = urlparse(STAC_URL)
@@ -34,6 +36,8 @@ if (
 MAX_AOI_HA = float(os.getenv("GEOCROP_MAX_AOI_HA", "10000"))
 MAX_DATE_DAYS = int(os.getenv("GEOCROP_MAX_DATE_DAYS", "1095"))
 MAX_IMPORT_BYTES = 20 * 1024 * 1024
+BODY_SLOTS = asyncio.Semaphore(4)
+IMPORT_SLOTS = asyncio.Semaphore(2)
 app = FastAPI(title="GeoCrop API", version="0.1.0")
 # shortcut: process-local cache is ephemeral; use shared storage if running multiple replicas.
 cache: dict[str, tuple[float, dict]] = {}
@@ -65,21 +69,6 @@ async def protections(request: Request, call_next):
         return JSONResponse(
             {"detail": "Request limit reached. Try again in a minute."}, status_code=429
         )
-    content_length = request.headers.get("content-length")
-    if request.url.path == "/api/analysis/import" and not content_length:
-        return JSONResponse(
-            {"detail": "Import requests must include a bounded content length."}, status_code=411
-        )
-    max_body_bytes = (
-        MAX_IMPORT_BYTES + 100_000 if request.url.path == "/api/analysis/import" else 1_000_000
-    )
-    if (
-        request.url.path.startswith("/api/")
-        and content_length
-        and content_length.isdigit()
-        and int(content_length) > max_body_bytes
-    ):
-        return JSONResponse({"detail": "Request body is too large."}, status_code=413)
     recent.append(now)
     requests_by_ip[key] = recent
     if len(requests_by_ip) > 2048:
@@ -164,6 +153,10 @@ async def search(payload: AnalysisRequest):
 @app.post("/api/analysis/demo")
 async def demo(payload: AnalysisRequest):
     geom, area = checked(payload)
+    if not supports_synthetic(geom):
+        raise HTTPException(
+            422, "Synthetic demo covers only the sample Iowa field. Reset the boundary to use it."
+        )
     days = (payload.end - payload.start).days
     count = min(6, max(1, days // 30 + 1))
     observations = []
@@ -274,3 +267,50 @@ if dist.is_dir():
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/", StaticFiles(directory=dist, html=True), name="web")
+
+
+class ApiBodyLimitMiddleware:
+    def __init__(self, downstream):
+        self.downstream = downstream
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/"):
+            return await self.downstream(scope, receive, send)
+        importing = scope["path"] == "/api/analysis/import"
+        limit = MAX_IMPORT_BYTES + 100_000 if importing else 1_000_000
+        async with AsyncExitStack() as stack:
+            await stack.enter_async_context(BODY_SLOTS)
+            if importing:
+                await stack.enter_async_context(IMPORT_SLOTS)
+            chunks = []
+            size = 0
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                if message["type"] != "http.request":
+                    continue
+                chunk = message.get("body", b"")
+                size += len(chunk)
+                if size > limit:
+                    response = JSONResponse(
+                        {"detail": "Request body is too large."}, status_code=413
+                    )
+                    return await response(scope, receive, send)
+                chunks.append(chunk)
+                if not message.get("more_body", False):
+                    break
+            body = b"".join(chunks)
+            replay = True
+
+            async def replay_receive():
+                nonlocal replay
+                if replay:
+                    replay = False
+                    return {"type": "http.request", "body": body, "more_body": False}
+                return await receive()
+
+            return await self.downstream(scope, replay_receive, send)
+
+
+app = ApiBodyLimitMiddleware(app)

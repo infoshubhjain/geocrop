@@ -1,5 +1,7 @@
 import json
 
+import anyio
+import httpx
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -38,11 +40,53 @@ def test_health_and_demo_response():
     )
 
 
+def test_synthetic_demo_rejects_areas_outside_its_sample_grid():
+    elsewhere = {
+        **BODY,
+        "aoi": {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [-122.42, 37.77],
+                    [-122.41, 37.77],
+                    [-122.41, 37.78],
+                    [-122.42, 37.78],
+                    [-122.42, 37.77],
+                ]
+            ],
+        },
+    }
+    response = client.post("/api/analysis/demo", json=elsewhere)
+    assert response.status_code == 422
+    assert "sample Iowa field" in response.json()["detail"]
+
+
 def test_api_rejects_bad_aoi_and_long_date_range():
     bad = {**BODY, "aoi": {"type": "Point", "coordinates": [0, 0]}}
     assert client.post("/api/analysis/demo", json=bad).status_code == 422
     long = {**BODY, "start": "2020-01-01", "end": "2024-01-01"}
     assert client.post("/api/catalog/search", json=long).status_code == 422
+
+
+def test_json_body_limit_rejects_chunked_requests_without_content_length():
+    async def check():
+        async def body():
+            yield b'{"padding":"'
+            yield b"x" * 1_000_001
+            yield b'"}'
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as streamed:
+            response = await streamed.post(
+                "/api/catalog/search",
+                content=body(),
+                headers={"Content-Type": "application/json"},
+            )
+        assert response.status_code == 413
+        assert response.json()["detail"] == "Request body is too large."
+
+    anyio.run(check)
 
 
 def test_api_errors_and_headers_are_safe():
