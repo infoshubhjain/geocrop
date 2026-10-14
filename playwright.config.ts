@@ -6,21 +6,23 @@ const venvPython =
     ? ".venv\\Scripts\\python.exe"
     : ".venv/bin/python";
 const python = existsSync(venvPython) ? venvPython : "python";
+const apiPort = Number(process.env.GEOCROP_TEST_API_PORT || 8008);
+const webPort = Number(process.env.GEOCROP_TEST_WEB_PORT || 4178);
 
 export default defineConfig({
   testDir: "./e2e",
-  use: { baseURL: "http://127.0.0.1:4178" },
+  use: { baseURL: `http://127.0.0.1:${webPort}` },
   webServer: [
     {
-      command: `${python} -m uvicorn geocrop.api:app --port 8008`,
-      port: 8008,
+      command: `${python} -m uvicorn geocrop.api:app --port ${apiPort}`,
+      port: apiPort,
       reuseExistingServer: false,
     },
     {
-      command: "npm run dev -- --port 4178",
-      port: 4178,
+      command: `npm run dev -- --port ${webPort}`,
+      port: webPort,
       reuseExistingServer: false,
-      env: { GEOCROP_API: "http://127.0.0.1:8008" },
+      env: { GEOCROP_API: `http://127.0.0.1:${apiPort}` },
     },
   ],
 });

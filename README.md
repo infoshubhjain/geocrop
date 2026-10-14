@@ -2,7 +2,9 @@
 
 GeoCrop is a responsive, map-first demonstrator for exploring vegetation indicators over a field boundary. It is decision support, not agronomic diagnosis or yield prediction.
 
-![GeoCrop sample field analysis](docs/screenshot.png)
+![GeoCrop sample field analysis on satellite imagery](docs/screenshot.png)
+
+[Mobile workflow screenshot](docs/screenshots/mobile.png)
 
 ## Quick start
 
@@ -26,10 +28,10 @@ In one terminal run `uvicorn geocrop.api:app --reload`; in another run `npm run 
 
 ## Architecture
 
-- `src/`: TypeScript + Vite UI; Leaflet map and OpenStreetMap base tiles.
+- `src/`: TypeScript + Vite UI; Leaflet map with Esri World Imagery by default and an OpenStreetMap street layer option.
 - `geocrop/api.py`: FastAPI endpoints, bounded STAC search/cache, SAS asset signing, live analysis, import handling and response validation. `geocrop/live.py` aligns B08 bilinearly and SCL with nearest-neighbor to the B04 10 m grid before cloud/nodata masking and NDVI calculation.
 - `geocrop/geo.py`: WGS84 geometry/area checks, EPSG:32615 synthetic raster grid, index and mask calculations.
-- No account, external farm-location storage, queue, database, or AI service. AOIs are sent to the STAC provider for live search and again with the selected scene for pixel analysis. Live assets are signed server-side through Planetary Computer and read through bounded COG range access; signed URLs are never returned to the browser. Demo and import calculations are local to the server process. OpenStreetMap receives viewport tile requests, which reveal the approximate map area and network address to that service.
+- No account, external farm-location storage, queue, database, or AI service. AOIs are sent to the STAC provider for live search and again with the selected scene for pixel analysis. Live assets are signed server-side through Planetary Computer and read through bounded COG range access; signed URLs are never returned to the browser. Demo and import calculations are local to the server process. The selected basemap provider receives viewport tile requests, which reveal the approximate map area and network address to that service; basemap imagery is visual context and is not used for vegetation-index calculations.
 
 ## Methods and data dictionary
 
@@ -53,7 +55,8 @@ Indices show spectral surface conditions. Clouds, nodata, mixed pixels, soil, cr
 | --------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Microsoft Planetary Computer STAC | Live Sentinel‑2 L2A metadata search; 5-minute in-memory cache | [STAC API](https://planetarycomputer.microsoft.com/docs/reference/stac/), [Sentinel‑2 collection](https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a), [Planetary Computer terms](https://planetarycomputer.microsoft.com/terms). Anonymous STAC metadata is currently accessible; some asset data access uses temporary SAS signing and is throttled.                                     |
 | ESA / Copernicus Sentinel‑2       | Underlying source imagery referenced by the collection        | [Copernicus Sentinel data terms](https://scihub.copernicus.eu/twiki/pub/SciHubWebPortal/TermsConditions/Sentinel_Data_Terms_and_Conditions.pdf); attribute “Contains modified Copernicus Sentinel data”. The collection metadata also lists Microsoft as host and Esri as processor. The STAC `license: proprietary` label describes the collection record; it is not treated here as the underlying Sentinel license. |
-| OpenStreetMap                     | Map base tiles                                                | © OpenStreetMap contributors; [copyright and attribution](https://www.openstreetmap.org/copyright). Public tile service usage limits apply; production deployments should choose an appropriate tile service.                                                                                                                                                                                                          |
+| Esri World Imagery                | Default display basemap only                                 | [Esri attribution and service terms](https://support.esri.com/en-us/knowledge-base/what-is-the-correct-way-to-cite-an-arcgis-online-basema-000012040); imagery sources and capture dates vary by location. Use the street-map switch if imagery is unavailable.                                                                                                                                                                |
+| OpenStreetMap                     | Optional street-map layer                                    | © OpenStreetMap contributors; [copyright and attribution](https://www.openstreetmap.org/copyright). Public tile service usage limits apply; production deployments should choose an appropriate tile service.                                                                                                                                                                                                          |
 | Synthetic fixture                 | Offline demo only                                             | Hand-authored by this project; explicitly synthetic, no external license or observation claims.                                                                                                                                                                                                                                                                                                                        |
 
 Terms and endpoints were checked on 2026-10-14. Provider terms and availability can change; re-check before production use. This project does not redistribute source imagery.
@@ -95,4 +98,4 @@ For production, terminate TLS at the host, keep the app private until access con
 - If `npm ci` fails, use Node 20 or later and rerun it after removing `node_modules`.
 - If live scene search or pixel processing fails, check the public STAC/SAS service and try another scene or a smaller AOI; use the explicitly labeled synthetic demo or raster import as an independent workflow.
 - If an import is rejected, check band order, unit reflectance scaling, CRS, pixel dimensions, file size, and AOI overlap.
-- If the map is blank, check access to OpenStreetMap tiles; the demo analysis still runs without the basemap.
+- If the map is blank, check access to Esri World Imagery and try the street-map layer; the demo analysis still runs without the basemap.

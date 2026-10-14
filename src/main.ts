@@ -53,12 +53,12 @@ const sample: GeoJSON.Feature<GeoJSON.Polygon> = {
 };
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
-  <header class="topbar"><a class="brand" href="#"><span class="brand-mark">✳</span><span>GeoCrop<small>FIELD INTELLIGENCE</small></span></a><div class="top-meta"><span class="live-dot"></span> Decision support · Preview</div></header>
+  <header class="topbar"><a class="brand" href="#"><span class="brand-mark" aria-hidden="true"><span></span></span><span>GeoCrop<small>FIELD INTELLIGENCE</small></span></a><div class="top-meta"><span class="live-dot"></span> Decision support · Preview</div></header>
   <main class="layout">
     <section class="map-column" aria-label="Field map">
       <div class="map-toolbar"><div class="map-label"><span class="eyebrow">WORKSPACE / FIELD 01</span><strong id="field-name">Sample field · Iowa</strong></div><div class="map-actions"><button id="draw-btn" class="button secondary">＋ Draw boundary</button><button id="finish-btn" class="button primary" disabled>Finish boundary</button></div></div>
       <div id="map" role="application" aria-label="Interactive field map. Activate Draw boundary, then click at least three map points."></div>
-      <div class="map-footer"><span>ⓘ Imagery pixels are 10–20 m; field averages include mixed edge pixels.</span><span id="area-chip">Sample area</span></div>
+      <div class="map-footer"><span>Sentinel‑2 analysis: 10–20 m pixels; field means include mixed edge pixels.</span><span id="area-chip">Sample area</span></div>
       <section class="below-map"><div class="section-title"><div><span class="eyebrow">LOCATION</span><h2>Find a field</h2></div><span class="muted">Coordinates · WGS84</span></div><div class="coordinate-row"><label>Latitude<input id="latitude" inputmode="decimal" value="41.6995" aria-label="Latitude"></label><label>Longitude<input id="longitude" inputmode="decimal" value="-93.4995" aria-label="Longitude"></label><button id="locate-btn" class="button secondary">Go to point</button></div><p class="muted small">Or draw a polygon on the map. Cross-antimeridian boundaries are not supported.</p></section>
       <details class="geojson-entry"><summary>Paste a boundary GeoJSON</summary><label for="geojson-input" class="muted small">Polygon geometry or Feature · WGS84</label><textarea id="geojson-input" rows="3" placeholder='{"type":"Polygon","coordinates":[[[-93.5,41.7],…]]}'></textarea><button id="apply-geojson" class="button secondary">Use this boundary</button></details>
     </section>
@@ -81,7 +81,7 @@ app.innerHTML = `
         <details class="provenance"><summary>Methods & provenance</summary><dl id="provenance"></dl></details>
       </div>
       <div class="limits"><span>ⓘ</span><p>Vegetation indices can vary with clouds, soil, crop type, phenology, mixed pixels, and sensor processing. They do not diagnose disease, irrigation need, or yield.</p></div>
-      <footer>Sentinel‑2 data © ESA/Copernicus · Hosted by Microsoft Planetary Computer · <a href="https://planetarycomputer.microsoft.com/terms" target="_blank" rel="noreferrer">Service terms</a><p>OpenStreetMap receives map viewport tile requests.</p></footer>
+      <footer>Sentinel‑2 data © ESA/Copernicus · Hosted by Microsoft Planetary Computer · <a href="https://planetarycomputer.microsoft.com/terms" target="_blank" rel="noreferrer">Service terms</a><p>Esri imagery is visual context only; field indices are calculated from Sentinel‑2 pixels or your imported raster. Imagery coverage dates vary.</p></footer>
     </aside>
   </main>`;
 
@@ -93,11 +93,16 @@ const map = L.map("map", { zoomControl: false }).setView(
 );
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.control.scale({ position: "bottomleft", imperial: false }).addTo(map);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
   maxZoom: 19,
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-}).addTo(map);
+  attribution: 'Imagery &copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community',
+});
+const streets = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+});
+satellite.addTo(map);
+L.control.layers({ "Satellite imagery": satellite, "Street map": streets }, undefined, { position: "topright", collapsed: true }).addTo(map);
 let aoi: GeoJSON.Feature<GeoJSON.Polygon> = structuredClone(sample);
 let boundary = L.geoJSON(aoi, {
   style: {
