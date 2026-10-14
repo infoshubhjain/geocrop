@@ -701,3 +701,21 @@ body { background: #f5f4ed; font-size: 14px; }
 .leaflet-control-attribution { background: #fbfaf5dd !important; }
 @media (max-width: 950px) { .layout { grid-template-columns: minmax(0, 1fr) 340px; } .map-column { padding: 18px; } }
 @media (max-width: 700px) { .topbar { padding: 0 16px; } #map { min-height: 55vh; } .panel { background: #fbfaf5; } }
+
+/* Field-lab direction: keep the image expansive and let metadata read like an instrument log. */
+.layout { grid-template-columns: minmax(0, 1fr) minmax(330px, 360px); }
+.map-column { padding-top: 20px; }
+.map-label strong, .panel h1, .result-head h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; }
+.map-label strong { font-size: 20px; letter-spacing: -.02em; }
+.panel { border-left: 1px solid #d2d8ca; }
+.panel h1 { font-size: 26px; line-height: 1.08; }
+.control-card { border: 0; border-top: 1px solid #d9ded0; border-bottom: 1px solid #d9ded0; border-radius: 0; background: transparent; padding: 14px 0; }
+.result-head { border-bottom: 1px solid #d9ded0; padding-bottom: 12px; }
+.result-head h2 { font-size: 21px; }
+.scene-row, .quality-grid > div, .limits { border-radius: 2px; }
+#map { border-radius: 2px; box-shadow: none; }
+.leaflet-control-layers { box-shadow: none !important; }
+@media (max-width: 700px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .panel { border-left: 0; }
+}
