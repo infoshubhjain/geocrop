@@ -259,7 +259,10 @@ async def live_analysis(payload: LiveAnalysisRequest):
         "observations": [
             {
                 "date": (props.get("datetime") or "")[:10],
+                "scene_id": payload.item_id,
+                "acquired": props.get("datetime"),
                 **stats,
+                "scene_cloud_percent": props.get("eo:cloud_cover"),
                 "ndmi": None,
                 "mask": "SCL classes 0,1,2,3,7,8,9,10,11 excluded; only valid AOI pixels summarized",
             }

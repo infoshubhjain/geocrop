@@ -4,6 +4,9 @@ import "./style.css";
 
 type Observation = {
   date: string;
+  scene_id?: string;
+  acquired?: string | null;
+  scene_cloud_percent?: number | null;
   ndvi: number | null;
   ndmi: number | null;
   pixel_count: number;
@@ -239,7 +242,7 @@ $("source-mode").addEventListener("change", () => {
   $<HTMLInputElement>("end-date").disabled = mode === "import";
   $("source-note").textContent =
     mode === "live"
-      ? "Searches Planetary Computer scenes. Select a scene to compute NDVI from bounded, cloud-masked Sentinel-2 pixels."
+      ? "Searches Planetary Computer scenes. Analyze one scene or select up to five dates for bounded, cloud-masked Sentinel-2 pixel comparisons."
       : mode === "import"
         ? "Imported values are labeled user supplied and are not independently verified."
         : "Synthetic reflectance fixture for the sample Iowa field only; no satellite observations.";
@@ -325,6 +328,95 @@ function showScenes(scenes: Scene[], cached: boolean) {
   $("pixel-value").textContent = "—";
   $("area-value").textContent = "—";
   $("scene-list").replaceChildren();
+  const batch = document.createElement("button");
+  batch.type = "button";
+  batch.className = "button secondary";
+  batch.textContent = "Analyze selected scenes (max 5)";
+  batch.addEventListener("click", async () => {
+    const selected = [
+      ...$("scene-list").querySelectorAll<HTMLInputElement>(
+        "input[data-scene-id]:checked",
+      ),
+    ];
+    if (!selected.length || selected.length > 5) {
+      setFeedback(
+        "Select between 1 and 5 scenes for a comparable multi-date analysis.",
+        true,
+      );
+      return;
+    }
+    batch.disabled = true;
+    const observations: Observation[] = [];
+    const errors: string[] = [];
+    let areaHa: number | undefined;
+    for (const input of selected) {
+      try {
+        const response = await fetch("/api/analysis/live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            aoi: geo().geometry,
+            item_id: input.dataset.sceneId,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok)
+          throw new Error(result.detail || "Scene processing failed");
+        areaHa ??= result.area_ha;
+        observations.push(...(result.observations || []));
+      } catch (error) {
+        errors.push(
+          input.dataset.sceneId +
+            ": " +
+            (error instanceof Error ? error.message : "processing failed"),
+        );
+      }
+    }
+    batch.disabled = false;
+    if (!observations.length) {
+      setFeedback(
+        errors.join("; ") || "No scenes produced observations.",
+        true,
+      );
+      return;
+    }
+    observations.sort((a, b) => a.date.localeCompare(b.date));
+    const result: Result = {
+      source: "live-sentinel-pixels",
+      source_label:
+        "LIVE SENTINEL-2 MULTI-SCENE ANALYSIS · " +
+        observations.length +
+        " observations" +
+        (errors.length ? " · " + errors.length + " failed" : ""),
+      area_ha: areaHa,
+      observations,
+      provenance: {
+        provider: "Microsoft Planetary Computer / Copernicus Sentinel-2 L2A",
+        scenes: observations.map(
+          ({ scene_id, acquired, scene_cloud_percent }) => ({
+            scene_id,
+            acquired,
+            scene_cloud_percent,
+          }),
+        ),
+        failures: errors,
+        note: "Dates are processed independently; failures are omitted and no values are interpolated.",
+      },
+    };
+    latest = result;
+    render(result);
+    if (errors.length)
+      setFeedback(
+        "Processed " +
+          observations.length +
+          " scenes; " +
+          errors.length +
+          " failed: " +
+          errors.join("; "),
+        true,
+      );
+  });
+  $("scene-list").append(batch);
   footprintLayer?.remove();
   const features: GeoJSON.Feature[] = [];
   for (const scene of scenes) {
@@ -345,6 +437,13 @@ function showScenes(scenes: Scene[], cached: boolean) {
     const actions = document.createElement("div");
     actions.className = "scene-actions";
     const source = document.createElement("a");
+    const select = document.createElement("input");
+    select.type = "checkbox";
+    select.dataset.sceneId = scene.id;
+    select.setAttribute(
+      "aria-label",
+      "Select scene " + scene.id + " for multi-date analysis",
+    );
     source.href = scene.source_url;
     source.target = "_blank";
     source.rel = "noreferrer";
@@ -413,7 +512,7 @@ function showScenes(scenes: Scene[], cached: boolean) {
         previewButton.textContent = "Preview loaded · up to 512 px";
       };
     });
-    actions.append(source, previewButton, analyzeButton);
+    actions.append(select, source, previewButton, analyzeButton);
     row.append(title, meta, actions);
     $("scene-list").append(row);
   }
@@ -560,6 +659,9 @@ $("export-btn").addEventListener("click", () => {
   }
   const rows = latest.observations.map((o) => [
     o.date,
+    o.scene_id ?? "",
+    o.acquired ?? "",
+    o.scene_cloud_percent ?? "",
     o.ndvi,
     o.ndmi,
     o.cloud_percent,
@@ -574,6 +676,9 @@ $("export-btn").addEventListener("click", () => {
   const csv = [
     [
       "date",
+      "scene_id",
+      "acquired",
+      "scene_cloud_percent",
       "ndvi",
       "ndmi",
       "cloud_percent",

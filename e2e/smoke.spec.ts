@@ -100,3 +100,78 @@ test("mobile layout stays within the viewport", async ({ page }) => {
     await page.locator("body").evaluate((el) => el.scrollWidth),
   ).toBeLessThanOrEqual(390);
 });
+
+test("analyzes selected Sentinel scenes chronologically and exports scene provenance", async ({
+  page,
+}) => {
+  await page.route("**/api/catalog/search", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "scene-later",
+            datetime: "2024-06-01T10:00:00Z",
+            cloud_percent: 8,
+            source_url: "https://example.test/later",
+            preview_url: "https://example.test/preview",
+          },
+          {
+            id: "scene-earlier",
+            datetime: "2024-05-01T10:00:00Z",
+            cloud_percent: 5,
+            source_url: "https://example.test/earlier",
+            preview_url: "https://example.test/preview",
+          },
+        ],
+        cached: false,
+      },
+    }),
+  );
+  await page.route("**/api/analysis/live", async (route) => {
+    const id = (route.request().postDataJSON() as { item_id: string }).item_id;
+    const date = id === "scene-earlier" ? "2024-05-01" : "2024-06-01";
+    await route.fulfill({
+      json: {
+        source: "live-sentinel-pixels",
+        source_label: "LIVE",
+        observations: [
+          {
+            date,
+            scene_id: id,
+            acquired: date + "T10:00:00Z",
+            scene_cloud_percent: id === "scene-earlier" ? 5 : 8,
+            ndvi: 0.6,
+            ndmi: null,
+            cloud_percent: 5,
+            pixel_count: 12,
+            mask: "SCL",
+          },
+        ],
+        provenance: { scene_id: id },
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("DATA SOURCE").selectOption("live");
+  await page.getByRole("button", { name: /Search live imagery/ }).click();
+  await page
+    .getByLabel("Select scene scene-later for multi-date analysis")
+    .check();
+  await page
+    .getByLabel("Select scene scene-earlier for multi-date analysis")
+    .check();
+  await page
+    .getByRole("button", { name: "Analyze selected scenes (max 5)" })
+    .click();
+  await expect(page.getByText(/MULTI-SCENE ANALYSIS/)).toBeVisible();
+  await expect(page.locator("#chart svg")).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export CSV" }).click();
+  const file = await download;
+  const fs = await import("node:fs/promises");
+  const content = await fs.readFile(await file.path(), "utf8");
+  expect(content.indexOf("scene-earlier")).toBeLessThan(
+    content.indexOf("scene-later"),
+  );
+  expect(content).toContain("scene_cloud_percent");
+});
