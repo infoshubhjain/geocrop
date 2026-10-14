@@ -33,15 +33,15 @@ In one terminal run `uvicorn geocrop.api:app --reload`; in another run `npm run 
 
 ## Methods and data dictionary
 
-| Field            | Meaning                                                                                                                                                           |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ndvi`           | `(NIR − Red) / (NIR + Red)`; unitless, mathematically bounded −1 to 1 when inputs are nonnegative and denominator is positive.                                    |
-| `ndmi`           | `(NIR − SWIR) / (NIR + SWIR)`; unitless, same bound under those conditions.                                                                                       |
+| Field            | Meaning                                                                                                                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ndvi`           | `(NIR − Red) / (NIR + Red)`; unitless, mathematically bounded −1 to 1 when inputs are nonnegative and denominator is positive.                                                                              |
+| `ndmi`           | `(NIR − SWIR) / (NIR + SWIR)`; unitless, same bound under those conditions.                                                                                                                                 |
 | `cloud_percent`  | Synthetic SCL-like class 9 fraction for demo; selected-scene SCL cloud classes 8–10 over AOI pixels for live analysis; absent for imports. Catalog `eo:cloud_cover` describes the whole scene, not the AOI. |
-| `nodata_percent` | Synthetic class 0 fraction for demo; Sentinel-2 SCL class 0 or missing reflectance pixels for live analysis. Imported data uses its own masks/nodata.                  |
-| `pixel_count`    | Unmasked pixels contributing to the AOI mean; not a count of plants or a precise field-edge measurement.                                                          |
-| `resolution_m`   | Nominal pixel size where known. Edge pixels and mixed land cover make field means approximate.                                                                    |
-| `area_ha`        | Geodesic polygon area calculated on the WGS84 ellipsoid.                                                                                                          |
+| `nodata_percent` | Synthetic class 0 fraction for demo; Sentinel-2 SCL class 0 or missing reflectance pixels for live analysis. Imported data uses its own masks/nodata.                                                       |
+| `pixel_count`    | Unmasked pixels contributing to the AOI mean; not a count of plants or a precise field-edge measurement.                                                                                                    |
+| `resolution_m`   | Nominal pixel size where known. Edge pixels and mixed land cover make field means approximate.                                                                                                              |
+| `area_ha`        | Geodesic polygon area calculated on the WGS84 ellipsoid.                                                                                                                                                    |
 
 Sentinel‑2 L2A B04 red and B08 NIR are processed on the native B04 10 m grid; B08 is bilinearly aligned if the scene grid differs, and 20 m SCL is nearest-neighbor aligned. Live NDVI uses STAC `raster:bands` scale/offset (default scale 0.0001, offset 0), excludes SCL classes 0,1,2,3,7,8,9,10,11 and invalid denominators, and reports p10/p50/p90. The 1,000,000-pixel limit applies to the clipped B04 scene window. A live result covers only that scene and selected AOI, not the entire farm. For imports, scale to unit reflectance first; processing and mask quality are not independently verified. Demo arrays share a 10 m EPSG:32615 grid, so no resampling occurs. Synthetic values are not satellite observations.
 

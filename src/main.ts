@@ -358,11 +358,16 @@ function showScenes(scenes: Scene[], cached: boolean) {
     analyzeButton.type = "button";
     analyzeButton.className = "preview-control analyze-control";
     analyzeButton.textContent = "Analyze NDVI pixels";
-    analyzeButton.setAttribute("aria-label", `Analyze NDVI pixels from Sentinel-2 scene ${scene.id}`);
+    analyzeButton.setAttribute(
+      "aria-label",
+      `Analyze NDVI pixels from Sentinel-2 scene ${scene.id}`,
+    );
     analyzeButton.addEventListener("click", async () => {
       analyzeButton.disabled = true;
       analyzeButton.textContent = "Processing bounded pixel window…";
-      setFeedback("Signing the public scene assets and processing the selected field window.");
+      setFeedback(
+        "Signing the public scene assets and processing the selected field window.",
+      );
       try {
         const response = await fetch("/api/analysis/live", {
           method: "POST",
@@ -370,11 +375,17 @@ function showScenes(scenes: Scene[], cached: boolean) {
           body: JSON.stringify({ aoi: geo().geometry, item_id: scene.id }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Sentinel-2 pixel analysis failed.");
+        if (!response.ok)
+          throw new Error(data.detail || "Sentinel-2 pixel analysis failed.");
         latest = data;
         render(data);
       } catch (error) {
-        setFeedback(error instanceof Error ? error.message : "Sentinel-2 pixel analysis failed.", true);
+        setFeedback(
+          error instanceof Error
+            ? error.message
+            : "Sentinel-2 pixel analysis failed.",
+          true,
+        );
         analyzeButton.disabled = false;
         analyzeButton.textContent = "Retry pixel analysis";
       }
@@ -436,9 +447,16 @@ function render(data: Result) {
   footprintLayer?.remove();
   footprintLayer = undefined;
   const obs = data.observations || [];
-  $("ndmi-legend").toggleAttribute("hidden", data.source === "live-sentinel-pixels" || !obs.some((item) => item.ndmi !== null));
+  $("ndmi-legend").toggleAttribute(
+    "hidden",
+    data.source === "live-sentinel-pixels" ||
+      !obs.some((item) => item.ndmi !== null),
+  );
   $("results").removeAttribute("hidden");
-  $("result-title").textContent = data.source === "live-sentinel-pixels" ? "Sentinel-2 pixel analysis" : "Seasonal profile";
+  $("result-title").textContent =
+    data.source === "live-sentinel-pixels"
+      ? "Sentinel-2 pixel analysis"
+      : "Seasonal profile";
   $("data-badge").textContent =
     data.source_label || "USER IMPORT · source values supplied by user";
   $("data-badge").className =
@@ -446,7 +464,11 @@ function render(data: Result) {
   $("area-value").textContent =
     data.area_ha == null ? "—" : `${data.area_ha.toFixed(1)} ha`;
   $("cloud-label").textContent =
-    data.source === "synthetic-demo" ? "MEAN AOI CLOUD" : data.source === "live-sentinel-pixels" ? "SCENE CLOUD" : "CLOUD DATA";
+    data.source === "synthetic-demo"
+      ? "MEAN AOI CLOUD"
+      : data.source === "live-sentinel-pixels"
+        ? "SCENE CLOUD"
+        : "CLOUD DATA";
   const clouds = obs
     .map((o) => o.cloud_percent)
     .filter((x): x is number => x !== null);
@@ -467,9 +489,10 @@ function render(data: Result) {
     const title = document.createElement("strong");
     title.textContent = `${latestObs.date} · ${latestObs.resolution_m ?? "unknown"} m`;
     const meta = document.createElement("span");
-    meta.textContent = data.source === "live-sentinel-pixels"
-      ? `NDVI ${latestObs.ndvi?.toFixed(3)} · p10 ${latestObs.ndvi_percentiles?.p10.toFixed(3)} / p50 ${latestObs.ndvi_percentiles?.p50.toFixed(3)} / p90 ${latestObs.ndvi_percentiles?.p90.toFixed(3)} · ${latestObs.pixel_count.toLocaleString()} valid of ${(latestObs.pixel_count + (latestObs.masked_pixel_count || 0)).toLocaleString()} AOI pixels · ${latestObs.mask}`
-      : `Cloud ${latestObs.cloud_percent ?? "n/a"}% · nodata ${latestObs.nodata_percent ?? "not reported"}% · ${latestObs.mask}`;
+    meta.textContent =
+      data.source === "live-sentinel-pixels"
+        ? `NDVI ${latestObs.ndvi?.toFixed(3)} · p10 ${latestObs.ndvi_percentiles?.p10.toFixed(3)} / p50 ${latestObs.ndvi_percentiles?.p50.toFixed(3)} / p90 ${latestObs.ndvi_percentiles?.p90.toFixed(3)} · ${latestObs.pixel_count.toLocaleString()} valid of ${(latestObs.pixel_count + (latestObs.masked_pixel_count || 0)).toLocaleString()} AOI pixels · ${latestObs.mask}`
+        : `Cloud ${latestObs.cloud_percent ?? "n/a"}% · nodata ${latestObs.nodata_percent ?? "not reported"}% · ${latestObs.mask}`;
     row.append(title, meta);
     $("scene-list").append(row);
   }
