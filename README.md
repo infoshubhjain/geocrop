@@ -2,6 +2,8 @@
 
 GeoCrop is a responsive, map-first demonstrator for exploring vegetation indicators over a field boundary. It is decision support, not agronomic diagnosis or yield prediction.
 
+**Live demo:** [geocrop-three.vercel.app](https://geocrop-three.vercel.app)
+
 ![GeoCrop sample field analysis on satellite imagery](docs/screenshot.png)
 
 [Mobile workflow screenshot](docs/screenshots/mobile.png)
@@ -89,7 +91,9 @@ Build a self-contained app image with Docker and run it on port 8000:
 docker compose up --build
 ```
 
-Then check `http://localhost:8000/api/health` and visit `http://localhost:8000`. The image includes the static frontend and geospatial API. No database or paid services are needed. Live catalog and imagery requests use public services with their own availability and rate limits. `render.yaml` prepares an optional free Render Blueprint; connect the repository and explicitly create the service to deploy it. No hosting account was connected from this workspace, so there is no live URL yet. Render free services can spin down while idle and have usage limits; review the [current free-plan details](https://render.com/docs/free) before deployment.
+Then check `http://localhost:8000/api/health` and visit `http://localhost:8000`. The image includes the static frontend and geospatial API. No database or paid services are needed. Live catalog and imagery requests use public services with their own availability and rate limits.
+
+The public deployment serves the Vite frontend on Vercel and runs the geospatial API in a Docker service on Render Free. `vercel.json` forwards `/api/*` to `https://geocrop-loe5.onrender.com/api/*`, keeping browser requests on one origin. The backend itself is available at [geocrop-loe5.onrender.com](https://geocrop-loe5.onrender.com). The Render Blueprint in `render.yaml` uses a public GitHub URL; because the repository is not installed into the Render GitHub integration, future backend changes require a manual Blueprint sync. Vercel deploys the frontend from `main` automatically. Render Free spins down after inactivity, so the first API call can take 50 seconds or more; review [Render's current free-plan limits](https://render.com/docs/free). No database or paid services are configured. The public Vercel route was checked with synthetic analysis, live Sentinel analysis, and a 9.7 MB GeoTIFF import.
 
 For production, terminate TLS at the host, keep the app private until access controls and operational rate limiting are configured, use an appropriate tile provider, and review public API exposure. The included in-process per-IP limiter is for a small demonstrator, not a substitute for a production gateway. Uploaded files are processed in memory and discarded. Farm boundaries remain in browser/server memory for the request only.
 
