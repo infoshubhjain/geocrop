@@ -43,6 +43,88 @@ test("sample field produces labeled indices and CSV export", async ({
   );
 });
 
+test("changing a boundary hides old statistics and prevents stale responses", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Analyze field/ }).click();
+  await expect(page.locator("#chart svg")).toBeVisible();
+  await page.getByText("Paste a boundary GeoJSON").click();
+  await page.getByLabel("Polygon geometry or Feature · WGS84").fill(
+    JSON.stringify({
+      type: "Polygon",
+      coordinates: [
+        [
+          [-93.501, 41.699],
+          [-93.499, 41.699],
+          [-93.499, 41.701],
+          [-93.501, 41.701],
+          [-93.501, 41.699],
+        ],
+      ],
+    }),
+  );
+  await page.getByRole("button", { name: "Use this boundary" }).click();
+  await expect(page.locator("#results")).toBeHidden();
+
+  let finishRequest: (() => void) | undefined;
+  await page.route("**/api/analysis/demo", async (route) => {
+    await new Promise<void>((resolve) => {
+      finishRequest = resolve;
+    });
+    await route.fulfill({
+      json: { source: "synthetic-demo", observations: [] },
+    });
+  });
+  await page.getByRole("button", { name: /Analyze field/ }).click();
+  await expect.poll(() => !!finishRequest).toBe(true);
+  await page.locator("#end-date").fill("2024-08-31");
+  finishRequest?.();
+  await expect(page.locator("#results")).toBeHidden();
+});
+
+test("import ignores disabled dates and plots negative NDVI below zero", async ({
+  page,
+}) => {
+  await page.route("**/api/analysis/import", (route) =>
+    route.fulfill({
+      json: {
+        source: "user-import",
+        source_label: "USER IMPORT",
+        area_ha: 1,
+        observations: [
+          {
+            date: "2024-06-01",
+            ndvi: -0.5,
+            ndmi: null,
+            pixel_count: 10,
+            cloud_percent: null,
+            mask: "nodata",
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/");
+  await page.getByLabel("TO").fill("2024-01-01");
+  await page.getByLabel("DATA SOURCE").selectOption("import");
+  await page.locator("#raster-file").setInputFiles({
+    name: "sample.tif",
+    mimeType: "image/tiff",
+    buffer: Buffer.from("probe"),
+  });
+  await page.getByRole("button", { name: /Analyze imported GeoTIFF/ }).click();
+  await expect(page.locator("#chart svg")).toHaveAttribute(
+    "aria-label",
+    /vertical range -1 to 1/,
+  );
+  const pointY = Number(
+    await page.locator('#chart circle[fill="#c76a3d"]').getAttribute("cy"),
+  );
+  const zeroY = 24 + (150 - 48) / 2;
+  expect(pointY).toBeGreaterThan(zeroY);
+});
+
 test("coordinate controls center the map and source selector explains live records", async ({
   page,
 }) => {
@@ -137,6 +219,7 @@ test("mobile layout stays within the viewport", async ({ page }) => {
 test("analyzes selected Sentinel scenes chronologically and exports scene provenance", async ({
   page,
 }) => {
+  await page.route("https://example.test/preview", (route) => route.abort());
   await page.route("**/api/catalog/search", (route) =>
     route.fulfill({
       json: {
@@ -203,6 +286,9 @@ test("analyzes selected Sentinel scenes chronologically and exports scene proven
     .getByRole("button", { name: "Load true-color preview" })
     .first()
     .click();
+  await expect(
+    page.getByRole("button", { name: "Preview unavailable · retry" }),
+  ).toBeVisible();
   await expect(page.locator(".analyze-control").first()).toHaveText(
     "Analyze NDVI pixels",
   );
@@ -219,6 +305,8 @@ test("analyzes selected Sentinel scenes chronologically and exports scene proven
     .getByRole("button", { name: "Analyze selected scenes (max 5)" })
     .click();
   await expect(page.getByText(/MULTI-SCENE ANALYSIS/)).toBeVisible();
+  await expect(page.locator("#cloud-label")).toHaveText("AOI CLOUD");
+  await expect(page.locator("#ndmi-legend")).toBeHidden();
   await expect(page.locator("#chart svg")).toBeVisible();
   const positions = await page
     .locator('#chart circle[fill="#c76a3d"]')

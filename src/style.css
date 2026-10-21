@@ -388,6 +388,9 @@ button:disabled {
   align-items: center;
   gap: 5px;
 }
+.chart-legend span[hidden] {
+  display: none;
+}
 .chart-legend #chart-range {
   margin-left: auto;
 }

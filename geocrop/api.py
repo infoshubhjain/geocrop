@@ -124,7 +124,6 @@ async def health():
 
 @app.post("/api/catalog/search")
 async def search(payload: AnalysisRequest):
-    # shortcut: live results include metadata and previews; add bounded COG processing when live index statistics are required.
     _, _ = checked(payload)
     key = f"{payload.aoi}|{payload.start}|{payload.end}"
     if key in cache and cache[key][0] > time.time():
@@ -253,9 +252,13 @@ async def live_analysis(payload: LiveAnalysisRequest):
         )
         raise HTTPException(502, message) from exc
     props = item.get("properties", {})
+    year = str(props.get("datetime", ""))[:4]
+    if len(year) != 4 or not year.isdigit():
+        raise HTTPException(502, "Selected scene has no valid acquisition year.")
+    attribution = f"Contains modified Copernicus Sentinel data {year}"
     return {
         "source": "live-sentinel-pixels",
-        "source_label": "LIVE SENTINEL-2 PIXEL ANALYSIS · not agronomic diagnosis",
+        "source_label": f"LIVE SENTINEL-2 PIXEL ANALYSIS · {attribution} · not agronomic diagnosis",
         "area_ha": round(area, 2),
         "observations": [
             {
@@ -270,6 +273,7 @@ async def live_analysis(payload: LiveAnalysisRequest):
         ],
         "provenance": {
             "provider": "Microsoft Planetary Computer / Copernicus Sentinel-2 L2A",
+            "attribution": attribution,
             "collection": "sentinel-2-l2a",
             "scene_id": payload.item_id,
             "acquired": props.get("datetime"),
@@ -364,8 +368,7 @@ async def import_raster(request: Request):
                 raise HTTPException(422, "No valid pixels overlap this boundary.")
             ndvi = (nir - red) / (nir + red)
             ndmi = (nir - swir) / (nir + swir)
-            reflectance = np.stack([red, nir, swir])
-            if np.nanmin(reflectance) < 0 or np.nanmax(reflectance) > 1:
+            if any(np.any((band[valid] < 0) | (band[valid] > 1)) for band in (red, nir, swir)):
                 raise HTTPException(
                     422, "Imported reflectance must be scaled to 0–1 before upload."
                 )

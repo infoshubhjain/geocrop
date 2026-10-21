@@ -81,7 +81,7 @@ app.innerHTML = `
         <details class="provenance"><summary>Methods & provenance</summary><dl id="provenance"></dl></details>
       </div>
       <div class="limits"><span>ⓘ</span><p>Vegetation indices can vary with clouds, soil, crop type, phenology, mixed pixels, and sensor processing. They do not diagnose disease, irrigation need, or yield.</p></div>
-      <footer>Sentinel‑2 data © ESA/Copernicus · Hosted by Microsoft Planetary Computer · <a href="https://planetarycomputer.microsoft.com/terms" target="_blank" rel="noreferrer">Service terms</a><p>Esri imagery is visual context only; field indices are calculated from Sentinel‑2 pixels or your imported raster. Imagery coverage dates vary.</p></footer>
+      <footer>Live Sentinel‑2 results credit each acquisition year · Hosted by Microsoft Planetary Computer · <a href="https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice" target="_blank" rel="noreferrer">Sentinel data notice</a> · <a href="https://planetarycomputer.microsoft.com/terms" target="_blank" rel="noreferrer">Service terms</a><p>Esri imagery is visual context only; field indices are calculated from Sentinel‑2 pixels or your imported raster. Imagery coverage dates vary.</p></footer>
     </aside>
   </main>`;
 
@@ -127,11 +127,12 @@ let footprintLayer: L.GeoJSON | undefined;
 let drawing = false;
 let vertices: L.LatLng[] = [];
 let latest: Result | undefined;
+let latestAoi: GeoJSON.Polygon | undefined;
+let inputVersion = 0;
 
 const updateAreaLabel = (name: string) => {
   $("field-name").textContent = name;
 };
-const geo = () => ({ type: "Feature", properties: {}, geometry: aoi.geometry });
 const dates = () => ({
   start: $<HTMLInputElement>("start-date").value,
   end: $<HTMLInputElement>("end-date").value,
@@ -141,8 +142,17 @@ const setFeedback = (message: string, error = false) => {
   el.textContent = message;
   el.classList.toggle("error", error);
 };
+const clearResults = () => {
+  inputVersion++;
+  latest = undefined;
+  latestAoi = undefined;
+  $("results").setAttribute("hidden", "");
+  footprintLayer?.remove();
+  footprintLayer = undefined;
+};
 
 $("draw-btn").addEventListener("click", () => {
+  clearResults();
   drawing = true;
   vertices = [];
   boundary.remove();
@@ -229,6 +239,7 @@ $<HTMLButtonElement>("apply-geojson").addEventListener("click", () => {
       throw new Error("Paste one Polygon without holes.");
     }
     aoi = { type: "Feature", properties: {}, geometry };
+    clearResults();
     boundary.remove();
     boundary = L.geoJSON(aoi, {
       style: {
@@ -252,6 +263,7 @@ $<HTMLButtonElement>("apply-geojson").addEventListener("click", () => {
   }
 });
 $("source-mode").addEventListener("change", () => {
+  clearResults();
   const mode = ($("source-mode") as HTMLSelectElement).value;
   $("import-row").toggleAttribute("hidden", mode !== "import");
   $<HTMLInputElement>("start-date").disabled = mode === "import";
@@ -269,14 +281,19 @@ $("source-mode").addEventListener("change", () => {
         ? "Search live imagery <span>→</span>"
         : "Analyze field <span>→</span>";
 });
+$<HTMLInputElement>("start-date").addEventListener("change", clearResults);
+$<HTMLInputElement>("end-date").addEventListener("change", clearResults);
+$<HTMLInputElement>("raster-file").addEventListener("change", clearResults);
 
 async function requestResult() {
+  const mode = ($("source-mode") as HTMLSelectElement).value;
   const { start, end } = dates();
-  if (!start || !end || end < start) {
+  if (mode !== "import" && (!start || !end || end < start)) {
     setFeedback("Choose a valid date range.", true);
     return;
   }
-  const mode = ($("source-mode") as HTMLSelectElement).value;
+  const version = inputVersion;
+  const resultAoi = structuredClone(aoi.geometry);
   const button = $("analyze-btn") as HTMLButtonElement;
   button.disabled = true;
   setFeedback("Checking boundary and requesting data…");
@@ -286,14 +303,14 @@ async function requestResult() {
       const file = ($("raster-file") as HTMLInputElement).files?.[0];
       if (!file) throw new Error("Choose a GeoTIFF to import.");
       const form = new FormData();
-      form.set("aoi", JSON.stringify(geo().geometry));
+      form.set("aoi", JSON.stringify(resultAoi));
       form.set("file", file);
       response = await fetch("/api/analysis/import", {
         method: "POST",
         body: form,
       });
     } else {
-      const body = JSON.stringify({ aoi: geo().geometry, start, end });
+      const body = JSON.stringify({ aoi: resultAoi, start, end });
       response = await fetch(
         mode === "live" ? "/api/catalog/search" : "/api/analysis/demo",
         {
@@ -304,14 +321,17 @@ async function requestResult() {
       );
     }
     const data = await response.json();
+    if (version !== inputVersion) return;
     if (!response.ok) throw new Error(data.detail || "Request failed.");
     if (mode === "live") {
       showScenes(data.items || [], data.cached);
       return;
     }
     latest = data;
+    latestAoi = resultAoi;
     render(data);
   } catch (error) {
+    if (version !== inputVersion) return;
     setFeedback(
       error instanceof Error
         ? error.message
@@ -326,6 +346,7 @@ $("analyze-btn").addEventListener("click", requestResult);
 
 function showScenes(scenes: Scene[], cached: boolean) {
   latest = undefined;
+  latestAoi = undefined;
   $("results").removeAttribute("hidden");
   $("result-title").textContent =
     `${scenes.length} live scene${scenes.length === 1 ? "" : "s"} found`;
@@ -349,6 +370,8 @@ function showScenes(scenes: Scene[], cached: boolean) {
   batch.className = "button secondary";
   batch.textContent = "Analyze selected scenes (max 5)";
   batch.addEventListener("click", async () => {
+    const version = inputVersion;
+    const resultAoi = structuredClone(aoi.geometry);
     const selected = [
       ...$("scene-list").querySelectorAll<HTMLInputElement>(
         "input[data-scene-id]:checked",
@@ -371,16 +394,18 @@ function showScenes(scenes: Scene[], cached: boolean) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            aoi: geo().geometry,
+            aoi: resultAoi,
             item_id: input.dataset.sceneId,
           }),
         });
         const result = await response.json();
+        if (version !== inputVersion) return;
         if (!response.ok)
           throw new Error(result.detail || "Scene processing failed");
         areaHa ??= result.area_ha;
         observations.push(...(result.observations || []));
       } catch (error) {
+        if (version !== inputVersion) return;
         errors.push(
           input.dataset.sceneId +
             ": " +
@@ -388,6 +413,7 @@ function showScenes(scenes: Scene[], cached: boolean) {
         );
       }
     }
+    if (version !== inputVersion) return;
     batch.disabled = false;
     if (!observations.length) {
       setFeedback(
@@ -397,17 +423,25 @@ function showScenes(scenes: Scene[], cached: boolean) {
       return;
     }
     observations.sort((a, b) => a.date.localeCompare(b.date));
+    const attribution = [
+      ...new Set(observations.map((o) => o.acquired?.slice(0, 4))),
+    ]
+      .filter((year): year is string => !!year && /^\d{4}$/.test(year))
+      .map((year) => `Contains modified Copernicus Sentinel data ${year}`)
+      .join(" · ");
     const result: Result = {
       source: "live-sentinel-pixels",
       source_label:
         "LIVE SENTINEL-2 MULTI-SCENE ANALYSIS · " +
         observations.length +
         " observations" +
-        (errors.length ? " · " + errors.length + " failed" : ""),
+        (errors.length ? " · " + errors.length + " failed" : "") +
+        (attribution ? " · " + attribution : ""),
       area_ha: areaHa,
       observations,
       provenance: {
         provider: "Microsoft Planetary Computer / Copernicus Sentinel-2 L2A",
+        attribution,
         scenes: observations.map(
           ({ scene_id, acquired, scene_cloud_percent }) => ({
             scene_id,
@@ -420,6 +454,7 @@ function showScenes(scenes: Scene[], cached: boolean) {
       },
     };
     latest = result;
+    latestAoi = resultAoi;
     render(result);
     if (errors.length)
       setFeedback(
@@ -478,6 +513,8 @@ function showScenes(scenes: Scene[], cached: boolean) {
       `Analyze NDVI pixels from Sentinel-2 scene ${scene.id}`,
     );
     analyzeButton.addEventListener("click", async () => {
+      const version = inputVersion;
+      const resultAoi = structuredClone(aoi.geometry);
       analyzeButton.disabled = true;
       analyzeButton.textContent = "Processing bounded pixel window…";
       setFeedback(
@@ -487,14 +524,17 @@ function showScenes(scenes: Scene[], cached: boolean) {
         const response = await fetch("/api/analysis/live", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ aoi: geo().geometry, item_id: scene.id }),
+          body: JSON.stringify({ aoi: resultAoi, item_id: scene.id }),
         });
         const data = await response.json();
+        if (version !== inputVersion) return;
         if (!response.ok)
           throw new Error(data.detail || "Sentinel-2 pixel analysis failed.");
         latest = data;
+        latestAoi = resultAoi;
         render(data);
       } catch (error) {
+        if (version !== inputVersion) return;
         setFeedback(
           error instanceof Error
             ? error.message
@@ -521,6 +561,7 @@ function showScenes(scenes: Scene[], cached: boolean) {
       preview.onerror = () => {
         preview.alt = "Preview unavailable from the imagery provider.";
         preview.hidden = true;
+        previewButton.textContent = "Preview unavailable · retry";
       };
       previewButton.textContent = "Preview loading…";
       row.append(preview);
@@ -582,7 +623,7 @@ function render(data: Result) {
     data.source === "synthetic-demo"
       ? "MEAN AOI CLOUD"
       : data.source === "live-sentinel-pixels"
-        ? "SCENE CLOUD"
+        ? "AOI CLOUD"
         : "CLOUD DATA";
   const clouds = obs
     .map((o) => o.cloud_percent)
@@ -647,8 +688,15 @@ function drawChart(observations: Observation[]) {
       ? (times[i] - first) / (last - first)
       : i / Math.max(observations.length - 1, 1)) *
       (W - 2 * pad);
+  const hasNdmi = observations.some((o) => o.ndmi !== null);
+  const lower = observations.some((o) => (o.ndvi ?? 0) < 0 || (o.ndmi ?? 0) < 0)
+    ? -1
+    : 0;
   const y = (v: number | null) =>
-    H - pad - Math.max(0, Math.min(1, v ?? 0)) * (H - 2 * pad);
+    H -
+    pad -
+    ((Math.max(lower, Math.min(1, v ?? 0)) - lower) / (1 - lower)) *
+      (H - 2 * pad);
   const path = (key: "ndvi" | "ndmi") =>
     observations
       .map((o, i) => `${i ? "L" : "M"}${x(i)},${y(o[key])}`)
@@ -665,7 +713,6 @@ function drawChart(observations: Observation[]) {
           "'": "&#39;",
         })[char]!,
     );
-  const hasNdmi = observations.some((o) => o.ndmi !== null);
   const nodes = observations
     .map(
       (o, i) =>
@@ -673,7 +720,7 @@ function drawChart(observations: Observation[]) {
     )
     .join("");
   $("chart").innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${hasNdmi ? "NDVI and NDMI" : "NDVI"} from ${safe(observations[0].date)} to ${safe(observations.at(-1)?.date || "")}"><path class="gridline" d="M${pad} ${y(1)}H${W - pad} M${pad} ${y(0.5)}H${W - pad} M${pad} ${y(0)}H${W - pad}"/><path class="line-ndvi" d="${path("ndvi")}"/>${hasNdmi ? `<path class="line-ndmi" d="${path("ndmi")}"/>` : ""}${nodes}<text x="${pad}" y="${H - 3}">${safe(observations[0].date.slice(5))}</text><text x="${W - pad - 36}" y="${H - 3}">${safe(observations.at(-1)?.date.slice(5) || "")}</text></svg>`;
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${hasNdmi ? "NDVI and NDMI" : "NDVI"} from ${safe(observations[0].date)} to ${safe(observations.at(-1)?.date || "")}, vertical range ${lower} to 1"><path class="gridline" d="M${pad} ${y(1)}H${W - pad} M${pad} ${y((1 + lower) / 2)}H${W - pad} M${pad} ${y(lower)}H${W - pad}"/><path class="line-ndvi" d="${path("ndvi")}"/>${hasNdmi ? `<path class="line-ndmi" d="${path("ndmi")}"/>` : ""}${nodes}<text x="0" y="${y(1) + 3}">1</text><text x="0" y="${y(lower) + 3}">${lower}</text><text x="${pad}" y="${H - 3}">${safe(observations[0].date.slice(5))}</text><text x="${W - pad - 36}" y="${H - 3}">${safe(observations.at(-1)?.date.slice(5) || "")}</text></svg>`;
 }
 
 $("export-btn").addEventListener("click", () => {
@@ -695,7 +742,7 @@ $("export-btn").addEventListener("click", () => {
     latest?.area_ha ?? "",
     latest?.source,
     JSON.stringify(latest?.provenance ?? {}),
-    JSON.stringify(aoi.geometry),
+    JSON.stringify(latestAoi),
   ]);
   const csv = [
     [

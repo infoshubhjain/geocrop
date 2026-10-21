@@ -21,8 +21,8 @@ jobs:
           cache: npm
       - run: pip install -e '.[test]'
       - run: npm ci
-      - run: ruff check geocrop tests
-      - run: ruff format --check geocrop tests
+      - run: ruff check geocrop tests scripts
+      - run: ruff format --check geocrop tests scripts
       - run: pytest
       - run: npm run typecheck
       - run: npx playwright install --with-deps chromium

@@ -178,6 +178,9 @@ def test_live_catalog_and_analysis_validate_provider_assets_and_hide_signed_urls
     result = client.post("/api/analysis/live", json={"aoi": SAMPLE, "item_id": "scene-1"})
     assert result.status_code == 200, result.text
     assert result.json()["observations"][0]["ndvi"] == pytest.approx(0.6)
+    assert result.json()["provenance"]["attribution"] == (
+        "Contains modified Copernicus Sentinel data 2024"
+    )
     assert len(analyzed_hrefs) == 3 and all("sig=private" in href for href in analyzed_hrefs)
     assert "sig=private" not in result.text
 
@@ -238,6 +241,21 @@ def test_import_calculates_indices_and_rejects_unscaled_reflectance():
     assert data["source"] == "user-import"
     assert data["observations"][0]["ndvi"] == pytest.approx(0.6)
     assert data["observations"][0]["ndmi"] == pytest.approx(1 / 3)
+
+    with MemoryFile() as memory:
+        with memory.open(**{**profile, "nodata": 9999.0}) as dataset:
+            for band, value in ((1, 0.1), (2, 0.4), (3, 0.2)):
+                values = np.full((100, 100), value, dtype="float32")
+                values[50, 50] = 9999
+                dataset.write(values, band)
+        masked = memory.read()
+    response = client.post(
+        "/api/analysis/import",
+        data={"aoi": json.dumps(SAMPLE)},
+        files={"file": ("masked.tif", masked, "image/tiff")},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["observations"][0]["ndvi"] == pytest.approx(0.6)
 
     with MemoryFile() as memory:
         with memory.open(**profile) as dataset:
