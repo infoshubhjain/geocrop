@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
+from geocrop import api as api_module
 from geocrop.api import app, bounded_json
 from geocrop.live import analyze_cogs
 
@@ -111,6 +112,74 @@ def test_api_errors_and_headers_are_safe():
 def test_live_endpoint_validates_scene_identity_before_provider_access():
     response = client.post("/api/analysis/live", json={"aoi": SAMPLE, "item_id": "invalid/id"})
     assert response.status_code == 422
+
+
+def test_live_catalog_and_analysis_validate_provider_assets_and_hide_signed_urls(monkeypatch):
+    original_client = httpx.AsyncClient
+    analyzed_hrefs = []
+
+    def respond(request):
+        if request.url.path.endswith("/search"):
+            assert request.method == "POST"
+            return httpx.Response(
+                200,
+                json={
+                    "features": [
+                        {
+                            "id": "scene-1",
+                            "properties": {"datetime": "2024-06-01T10:00:00Z"},
+                            "assets": {"B04": {}, "B08": {}, "SCL": {}},
+                        }
+                    ]
+                },
+            )
+        if request.url.path.endswith("/items/scene-1"):
+            assets = {
+                name: {"href": f"https://sample.blob.core.windows.net/{name}.tif"}
+                for name in ("B04", "B08", "SCL")
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "collection": "sentinel-2-l2a",
+                    "id": "scene-1",
+                    "properties": {"datetime": "2024-06-01T10:00:00Z"},
+                    "assets": assets,
+                },
+            )
+        if request.url.path.endswith("/sign"):
+            return httpx.Response(200, json={"href": request.url.params["href"] + "?sig=private"})
+        raise AssertionError(f"Unexpected provider request: {request.url}")
+
+    monkeypatch.setattr(
+        api_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs),
+    )
+
+    def analyze(_aoi, *hrefs_and_scales):
+        analyzed_hrefs.extend(hrefs_and_scales[:3])
+        return {
+            "ndvi": 0.6,
+            "ndvi_percentiles": {"p10": 0.5, "p50": 0.6, "p90": 0.7},
+            "pixel_count": 10,
+            "masked_pixel_count": 2,
+            "cloud_percent": 0.0,
+            "nodata_percent": 0.0,
+            "resolution_m": 10,
+            "crs": "EPSG:32615",
+            "processing_grid": "B04 grid",
+        }
+
+    monkeypatch.setattr(api_module, "analyze_cogs", analyze)
+    search = client.post("/api/catalog/search", json=BODY)
+    assert search.status_code == 200
+    assert search.json()["items"][0]["id"] == "scene-1"
+    result = client.post("/api/analysis/live", json={"aoi": SAMPLE, "item_id": "scene-1"})
+    assert result.status_code == 200, result.text
+    assert result.json()["observations"][0]["ndvi"] == pytest.approx(0.6)
+    assert len(analyzed_hrefs) == 3 and all("sig=private" in href for href in analyzed_hrefs)
+    assert "sig=private" not in result.text
 
 
 def test_cog_analysis_aligns_20m_assets_to_10m_roi_grid():

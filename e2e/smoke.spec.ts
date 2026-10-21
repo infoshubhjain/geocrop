@@ -1,5 +1,20 @@
 import { expect, test } from "@playwright/test";
 
+test("production policy permits the default satellite tiles", async ({
+  page,
+}) => {
+  await page.route("https://server.arcgisonline.com/**", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"/>',
+    }),
+  );
+  await page.goto("/");
+  await expect(
+    page.locator(".leaflet-tile[src*='World_Imagery']").first(),
+  ).toHaveJSProperty("naturalWidth", 256);
+});
+
 test("sample field produces labeled indices and CSV export", async ({
   page,
 }) => {
@@ -8,14 +23,19 @@ test("sample field produces labeled indices and CSV export", async ({
     page.getByRole("heading", { name: "Observe your field" }),
   ).toBeVisible();
   await expect(page.locator(".leaflet-control-layers-toggle")).toBeVisible();
-  await expect(page.locator(".leaflet-tile[src*='World_Imagery']").first()).toBeVisible();
+  await expect(
+    page.locator(".leaflet-tile[src*='World_Imagery']").first(),
+  ).toBeVisible();
   await page.getByRole("button", { name: /Analyze field/ }).click();
   await expect(page.getByText(/SYNTHETIC DEMO/)).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.locator("#chart svg")).toBeVisible();
   await expect(page.getByText(/Cloud/)).toBeVisible();
-  await page.screenshot({ path: "docs/screenshot.png", fullPage: true });
+  await page.screenshot({
+    path: "test-results/screenshot-desktop.png",
+    fullPage: true,
+  });
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export CSV" }).click();
   expect((await download).suggestedFilename()).toBe(
@@ -108,7 +128,10 @@ test("mobile layout stays within the viewport", async ({ page }) => {
   expect(
     await page.locator("body").evaluate((el) => el.scrollWidth),
   ).toBeLessThanOrEqual(390);
-  await page.screenshot({ path: "docs/screenshots/mobile.png", fullPage: true });
+  await page.screenshot({
+    path: "test-results/screenshot-mobile.png",
+    fullPage: true,
+  });
 });
 
 test("analyzes selected Sentinel scenes chronologically and exports scene provenance", async ({
@@ -132,6 +155,13 @@ test("analyzes selected Sentinel scenes chronologically and exports scene proven
             source_url: "https://example.test/earlier",
             preview_url: "https://example.test/preview",
           },
+          {
+            id: "scene-middle",
+            datetime: "2024-05-02T10:00:00Z",
+            cloud_percent: 6,
+            source_url: "https://example.test/middle",
+            preview_url: "https://example.test/preview",
+          },
         ],
         cached: false,
       },
@@ -139,7 +169,12 @@ test("analyzes selected Sentinel scenes chronologically and exports scene proven
   );
   await page.route("**/api/analysis/live", async (route) => {
     const id = (route.request().postDataJSON() as { item_id: string }).item_id;
-    const date = id === "scene-earlier" ? "2024-05-01" : "2024-06-01";
+    const date =
+      id === "scene-earlier"
+        ? "2024-05-01"
+        : id === "scene-middle"
+          ? "2024-05-02"
+          : "2024-06-01";
     await route.fulfill({
       json: {
         source: "live-sentinel-pixels",
@@ -165,16 +200,35 @@ test("analyzes selected Sentinel scenes chronologically and exports scene proven
   await page.getByLabel("DATA SOURCE").selectOption("live");
   await page.getByRole("button", { name: /Search live imagery/ }).click();
   await page
+    .getByRole("button", { name: "Load true-color preview" })
+    .first()
+    .click();
+  await expect(page.locator(".analyze-control").first()).toHaveText(
+    "Analyze NDVI pixels",
+  );
+  await page
     .getByLabel("Select scene scene-later for multi-date analysis")
     .check();
   await page
     .getByLabel("Select scene scene-earlier for multi-date analysis")
     .check();
   await page
+    .getByLabel("Select scene scene-middle for multi-date analysis")
+    .check();
+  await page
     .getByRole("button", { name: "Analyze selected scenes (max 5)" })
     .click();
   await expect(page.getByText(/MULTI-SCENE ANALYSIS/)).toBeVisible();
   await expect(page.locator("#chart svg")).toBeVisible();
+  const positions = await page
+    .locator('#chart circle[fill="#c76a3d"]')
+    .evaluateAll((circles) =>
+      circles.map((circle) => Number(circle.getAttribute("cx"))),
+    );
+  expect(positions).toHaveLength(3);
+  expect(positions[1] - positions[0]).toBeLessThan(
+    (positions[2] - positions[1]) / 10,
+  );
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export CSV" }).click();
   const file = await download;

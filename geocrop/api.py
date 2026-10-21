@@ -39,7 +39,8 @@ MAX_AOI_HA = float(os.getenv("GEOCROP_MAX_AOI_HA", "10000"))
 MAX_DATE_DAYS = int(os.getenv("GEOCROP_MAX_DATE_DAYS", "1095"))
 MAX_IMPORT_BYTES = 20 * 1024 * 1024
 BODY_SLOTS = asyncio.Semaphore(4)
-IMPORT_SLOTS = asyncio.Semaphore(2)
+# Large rasters expand into several arrays; keep one import in memory at a time.
+IMPORT_SLOTS = asyncio.Semaphore(1)
 LIVE_SLOTS = asyncio.Semaphore(2)
 app = FastAPI(title="GeoCrop API", version="0.1.0")
 # shortcut: process-local cache is ephemeral; use shared storage if running multiple replicas.
@@ -110,7 +111,7 @@ async def protections(request: Request, call_next):
             "X-Frame-Options": "DENY",
             "Referrer-Policy": "strict-origin-when-cross-origin",
             "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-            "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org https://planetarycomputer.microsoft.com; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://tile.openstreetmap.org https://planetarycomputer.microsoft.com; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
         }
     )
     return response

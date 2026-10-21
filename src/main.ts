@@ -93,16 +93,27 @@ const map = L.map("map", { zoomControl: false }).setView(
 );
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.control.scale({ position: "bottomleft", imperial: false }).addTo(map);
-const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-  maxZoom: 19,
-  attribution: 'Imagery &copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community',
-});
+const satellite = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  {
+    maxZoom: 19,
+    attribution:
+      'Imagery &copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community',
+  },
+);
 const streets = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  attribution:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 });
 satellite.addTo(map);
-L.control.layers({ "Satellite imagery": satellite, "Street map": streets }, undefined, { position: "topright", collapsed: true }).addTo(map);
+L.control
+  .layers(
+    { "Satellite imagery": satellite, "Street map": streets },
+    undefined,
+    { position: "topright", collapsed: true },
+  )
+  .addTo(map);
 let aoi: GeoJSON.Feature<GeoJSON.Polygon> = structuredClone(sample);
 let boundary = L.geoJSON(aoi, {
   style: {
@@ -499,7 +510,7 @@ function showScenes(scenes: Scene[], cached: boolean) {
         .querySelectorAll(".scene-preview")
         .forEach((image) => image.remove());
       $("scene-list")
-        .querySelectorAll(".preview-control")
+        .querySelectorAll(".preview-control:not(.analyze-control)")
         .forEach((button) => {
           button.textContent = "Load true-color preview";
         });
@@ -626,8 +637,16 @@ function drawChart(observations: Observation[]) {
   const W = 520,
     H = 150,
     pad = 24;
+  const times = observations.map((observation) => Date.parse(observation.date));
+  const first = times[0];
+  const last = times.at(-1)!;
+  const useDates = times.every(Number.isFinite) && last > first;
   const x = (i: number) =>
-    pad + (i * (W - 2 * pad)) / Math.max(observations.length - 1, 1);
+    pad +
+    (useDates
+      ? (times[i] - first) / (last - first)
+      : i / Math.max(observations.length - 1, 1)) *
+      (W - 2 * pad);
   const y = (v: number | null) =>
     H - pad - Math.max(0, Math.min(1, v ?? 0)) * (H - 2 * pad);
   const path = (key: "ndvi" | "ndmi") =>
