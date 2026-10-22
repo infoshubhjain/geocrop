@@ -1,5 +1,6 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import example from "../geocrop/data/example_scene.json";
 import "./style.css";
 
 type Observation = {
@@ -56,28 +57,29 @@ app.innerHTML = `
   <header class="topbar"><a class="brand" href="#"><span class="brand-mark" aria-hidden="true"><span></span></span><span>GeoCrop<small>FIELD INTELLIGENCE</small></span></a><div class="top-meta"><span class="live-dot"></span> Decision support · Preview</div></header>
   <main class="layout">
     <section class="map-column" aria-label="Field map">
-      <div class="map-toolbar"><div class="map-label"><span class="eyebrow">WORKSPACE / FIELD 01</span><strong id="field-name">Sample field · Iowa</strong></div><div class="map-actions"><button id="draw-btn" class="button secondary">＋ Draw boundary</button><button id="finish-btn" class="button primary" disabled>Finish boundary</button></div></div>
-      <div id="map" role="application" aria-label="Interactive field map. Activate Draw boundary, then click at least three map points."></div>
-      <div class="map-footer"><span>Sentinel‑2 analysis: 10–20 m pixels; field means include mixed edge pixels.</span><span id="area-chip">Sample area</span></div>
+      <div class="map-toolbar"><div class="map-label"><span class="eyebrow">WORKSPACE / IOWA STUDY AREA</span><strong id="field-name">Sample field · Iowa</strong></div><div class="map-actions"><button id="reset-btn" class="button secondary">Reset sample</button><button id="draw-btn" class="button secondary">＋ Select area</button><button id="finish-btn" class="button primary" disabled>Finish boundary</button></div></div>
+      <div class="map-stage"><div id="map" role="application" aria-label="Interactive field map. Activate Select area, then click at least three map points inside the outlined example coverage."></div><div id="example-legend" class="map-legend"><strong>NDVI · 9 Jun 2024</strong><span>Bundled Sentinel‑2 scene</span><div class="legend-ramp"></div><div class="legend-scale"><span>−0.2</span><span>0.2</span><span>0.5</span><span>0.8</span></div><small>Outline = selectable example coverage</small></div></div>
+      <div class="map-footer"><span id="map-method-note">NDVI overlay and results use the same dated Sentinel‑2 pixels. Mixed edge pixels remain possible.</span><span id="area-chip">Sample area</span></div>
       <section class="below-map"><div class="section-title"><div><span class="eyebrow">LOCATION</span><h2>Find a field</h2></div><span class="muted">Coordinates · WGS84</span></div><div class="coordinate-row"><label>Latitude<input id="latitude" inputmode="decimal" value="41.6995" aria-label="Latitude"></label><label>Longitude<input id="longitude" inputmode="decimal" value="-93.4995" aria-label="Longitude"></label><button id="locate-btn" class="button secondary">Go to point</button></div><p class="muted small">Or draw a polygon on the map. Cross-antimeridian boundaries are not supported.</p></section>
       <details class="geojson-entry"><summary>Paste a boundary GeoJSON</summary><label for="geojson-input" class="muted small">Polygon geometry or Feature · WGS84</label><textarea id="geojson-input" rows="3" placeholder='{"type":"Polygon","coordinates":[[[-93.5,41.7],…]]}'></textarea><button id="apply-geojson" class="button secondary">Use this boundary</button></details>
     </section>
     <aside class="panel" aria-label="Analysis controls and results">
       <div class="panel-heading"><div><span class="eyebrow">CROP CONDITION</span><h1>Observe your field</h1></div><span class="status-pill">BETA</span></div>
-      <p class="intro">Track spectral changes across dates. Indicators describe surface reflectance, not crop health or yield.</p>
-      <div class="control-card"><label class="field-label" for="source-mode">DATA SOURCE</label><select id="source-mode"><option value="demo">Synthetic demo · always available</option><option value="live">Live catalog · Sentinel‑2 L2A</option><option value="import">Import GeoTIFF</option></select><div id="source-note" class="helper">Deterministic sample data, clearly labeled. No satellite observations.</div>
+      <p class="intro">Explore a dated scene by area, or switch sources to compare dates. Indicators describe surface reflectance, not crop health or yield.</p>
+      <div class="control-card"><label class="field-label" for="source-mode">DATA SOURCE</label><select id="source-mode"><option value="example">Example scene · real Sentinel‑2 pixels</option><option value="demo">Synthetic time series · illustrative</option><option value="live">Live catalog · Sentinel‑2 L2A</option><option value="import">Import GeoTIFF</option></select><div id="source-note" class="helper">Draw any area inside the outlined study area. The NDVI overlay and analysis use one bundled scene acquired 9 June 2024.</div>
         <div id="import-row" hidden><label class="field-label" for="raster-file">3-band reflectance GeoTIFF</label><input id="raster-file" type="file" accept=".tif,.tiff,image/tiff"><div class="helper">One scene; date range is not used. Band 1 red, 2 NIR, 3 SWIR; unit reflectance 0–1. Up to 20 MB.</div></div>
-        <div class="date-grid"><label>FROM<input type="date" id="start-date" value="2024-04-01"></label><label>TO<input type="date" id="end-date" value="2024-09-30"></label></div>
-        <button id="analyze-btn" class="button primary analyze">Analyze field <span>→</span></button>
+        <div id="date-grid" class="date-grid" hidden><label>FROM<input type="date" id="start-date" value="2024-04-01" disabled></label><label>TO<input type="date" id="end-date" value="2024-09-30" disabled></label></div>
+        <button id="analyze-btn" class="button primary analyze">Analyze selected area <span>→</span></button>
       </div>
-      <div id="feedback" class="feedback" role="status" aria-live="polite">Choose a source and analyze the sample field.</div>
+      <div id="feedback" class="feedback" role="status" aria-live="polite">Draw inside the outlined area or analyze the sample boundary.</div>
       <div id="results" hidden>
         <div class="result-head"><div><span class="eyebrow">VEGETATION INDICATORS</span><h2 id="result-title">Seasonal profile</h2></div><button id="export-btn" class="icon-button" title="Export CSV" aria-label="Export CSV">↧</button></div>
         <div id="data-badge" class="data-badge"></div>
+        <div class="ndvi-feature"><div><span id="ndvi-feature-label" class="eyebrow">SELECTED AREA · MEAN NDVI</span><small>Reflectance index, not crop health</small></div><strong id="mean-ndvi">—</strong></div>
         <div class="chart-legend"><span><i class="swatch ndvi"></i>NDVI</span><span id="ndmi-legend"><i class="swatch ndmi"></i>NDMI</span><span id="chart-range" class="muted"></span></div>
         <div id="chart" class="chart" role="img" aria-label="NDVI and NDMI time series"></div>
         <div id="scene-list" class="scene-list"></div>
-        <div class="quality-grid"><div><span id="cloud-label" class="eyebrow">AOI CLOUD</span><strong id="cloud-value">—</strong></div><div><span class="eyebrow">VALID PIXELS</span><strong id="pixel-value">—</strong></div><div><span class="eyebrow">FIELD AREA</span><strong id="area-value">—</strong></div></div>
+        <div class="quality-grid"><div><span id="cloud-label" class="eyebrow">AOI CLOUD</span><strong id="cloud-value">—</strong></div><div><span class="eyebrow">VALID PIXELS</span><strong id="pixel-value">—</strong></div><div><span class="eyebrow">SELECTED AREA</span><strong id="area-value">—</strong></div></div>
         <details class="provenance"><summary>Methods & provenance</summary><dl id="provenance"></dl></details>
       </div>
       <div class="limits"><span>ⓘ</span><p>Vegetation indices can vary with clouds, soil, crop type, phenology, mixed pixels, and sensor processing. They do not diagnose disease, irrigation need, or yield.</p></div>
@@ -107,13 +109,40 @@ const streets = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 });
 satellite.addTo(map);
-L.control
+const exampleBounds = L.latLngBounds(
+  example.bounds as [[number, number], [number, number]],
+);
+const exampleOverlay = L.imageOverlay("/example-ndvi.png", exampleBounds, {
+  opacity: 0.74,
+  alt: "Color-coded NDVI pixels from the bundled Sentinel-2 example scene",
+  attribution: example.attribution,
+}).addTo(map);
+const exampleCoverage = L.rectangle(exampleBounds, {
+  color: "#f7f3d6",
+  weight: 2,
+  dashArray: "7 5",
+  fill: false,
+  interactive: false,
+}).addTo(map);
+const layersControl = L.control
   .layers(
     { "Satellite imagery": satellite, "Street map": streets },
-    undefined,
+    { "Example NDVI · 9 Jun 2024": exampleOverlay },
     { position: "topright", collapsed: true },
   )
   .addTo(map);
+let exampleOverlayInControl = true;
+map.on("overlayremove", (event: L.LayersControlEvent) => {
+  if (event.layer === exampleOverlay)
+    $("example-legend").setAttribute("hidden", "");
+});
+map.on("overlayadd", (event: L.LayersControlEvent) => {
+  if (
+    event.layer === exampleOverlay &&
+    ($("source-mode") as HTMLSelectElement).value === "example"
+  )
+    $("example-legend").removeAttribute("hidden");
+});
 let aoi: GeoJSON.Feature<GeoJSON.Polygon> = structuredClone(sample);
 let boundary = L.geoJSON(aoi, {
   style: {
@@ -126,6 +155,7 @@ let boundary = L.geoJSON(aoi, {
 let footprintLayer: L.GeoJSON | undefined;
 let drawing = false;
 let vertices: L.LatLng[] = [];
+let draftLayers: L.Layer[] = [];
 let latest: Result | undefined;
 let latestAoi: GeoJSON.Polygon | undefined;
 let inputVersion = 0;
@@ -155,18 +185,24 @@ $("draw-btn").addEventListener("click", () => {
   clearResults();
   drawing = true;
   vertices = [];
+  draftLayers.forEach((layer) => layer.remove());
+  draftLayers = [];
   boundary.remove();
   $("finish-btn").removeAttribute("disabled");
   setFeedback(
-    "Click three or more points inside your field, then finish the boundary.",
+    "Click three or more points inside the outlined study area, then finish the boundary.",
   );
 });
 map.on("click", (event: L.LeafletMouseEvent) => {
   if (!drawing) return;
   vertices.push(event.latlng);
-  L.circleMarker(event.latlng, { radius: 4, color: "#c76a3d" }).addTo(map);
+  draftLayers.push(
+    L.circleMarker(event.latlng, { radius: 4, color: "#c76a3d" }).addTo(map),
+  );
   if (vertices.length > 1)
-    L.polyline(vertices, { color: "#c76a3d", dashArray: "5 5" }).addTo(map);
+    draftLayers.push(
+      L.polyline(vertices, { color: "#c76a3d", dashArray: "5 5" }).addTo(map),
+    );
 });
 $("finish-btn").addEventListener("click", () => {
   if (vertices.length < 3) {
@@ -181,10 +217,8 @@ $("finish-btn").addEventListener("click", () => {
     geometry: { type: "Polygon", coordinates: [ring] },
   };
   drawing = false;
-  map.eachLayer((layer) => {
-    if (layer instanceof L.CircleMarker || layer instanceof L.Polyline)
-      map.removeLayer(layer);
-  });
+  draftLayers.forEach((layer) => layer.remove());
+  draftLayers = [];
   boundary = L.geoJSON(aoi, {
     style: {
       color: "#c76a3d",
@@ -193,10 +227,34 @@ $("finish-btn").addEventListener("click", () => {
       fillOpacity: 0.2,
     },
   }).addTo(map);
-  updateAreaLabel("Selected field");
+  updateAreaLabel("Selected area");
   $("area-chip").textContent = "Boundary selected";
   $("finish-btn").setAttribute("disabled", "");
   setFeedback("Boundary selected. Analyze to validate its geometry and area.");
+});
+$("reset-btn").addEventListener("click", () => {
+  clearResults();
+  drawing = false;
+  vertices = [];
+  draftLayers.forEach((layer) => layer.remove());
+  draftLayers = [];
+  $("finish-btn").setAttribute("disabled", "");
+  aoi = structuredClone(sample);
+  boundary.remove();
+  boundary = L.geoJSON(aoi, {
+    style: {
+      color: "#c76a3d",
+      weight: 2,
+      fillColor: "#dcaa63",
+      fillOpacity: 0.2,
+    },
+  }).addTo(map);
+  map.fitBounds(exampleBounds, { padding: [35, 35] });
+  updateAreaLabel("Sample field · Iowa");
+  $("area-chip").textContent = "Sample boundary · 2024 scene";
+  setFeedback(
+    "Sample boundary restored. Draw inside the outline or analyze this area.",
+  );
 });
 $("locate-btn").addEventListener("click", () => {
   const lat = Number($<HTMLInputElement>("latitude").value),
@@ -266,20 +324,54 @@ $("source-mode").addEventListener("change", () => {
   clearResults();
   const mode = ($("source-mode") as HTMLSelectElement).value;
   $("import-row").toggleAttribute("hidden", mode !== "import");
-  $<HTMLInputElement>("start-date").disabled = mode === "import";
-  $<HTMLInputElement>("end-date").disabled = mode === "import";
+  $("date-grid").toggleAttribute(
+    "hidden",
+    mode === "import" || mode === "example",
+  );
+  $<HTMLInputElement>("start-date").disabled =
+    mode === "import" || mode === "example";
+  $<HTMLInputElement>("end-date").disabled =
+    mode === "import" || mode === "example";
+  $("example-legend").toggleAttribute("hidden", mode !== "example");
+  if (mode === "example") {
+    if (!exampleOverlayInControl) {
+      layersControl.addOverlay(exampleOverlay, "Example NDVI · 9 Jun 2024");
+      exampleOverlayInControl = true;
+    }
+    exampleOverlay.addTo(map);
+    exampleCoverage.addTo(map);
+  } else {
+    exampleOverlay.remove();
+    exampleCoverage.remove();
+    if (exampleOverlayInControl) {
+      layersControl.removeLayer(exampleOverlay);
+      exampleOverlayInControl = false;
+    }
+  }
+  $("map-method-note").textContent =
+    mode === "example"
+      ? "NDVI overlay and results use the same dated Sentinel‑2 pixels. Mixed edge pixels remain possible."
+      : mode === "demo"
+        ? "Synthetic reflectance values are illustrative; the basemap is visual context only."
+        : mode === "live"
+          ? "Live Sentinel‑2 statistics use the selected scene and boundary; basemap imagery dates may differ."
+          : "Imported raster values come from your file; the basemap is visual context only.";
   $("source-note").textContent =
-    mode === "live"
-      ? "Searches Planetary Computer scenes. Analyze one scene or select up to five dates for bounded, cloud-masked Sentinel-2 pixel comparisons."
-      : mode === "import"
-        ? "Imported values are labeled user supplied and are not independently verified."
-        : "Synthetic reflectance fixture for the sample Iowa field only; no satellite observations.";
+    mode === "example"
+      ? "Draw any area inside the outlined study area. The NDVI overlay and analysis use one bundled scene acquired 9 June 2024."
+      : mode === "live"
+        ? "Searches Planetary Computer scenes. Analyze one scene or select up to five dates for bounded, cloud-masked Sentinel-2 pixel comparisons."
+        : mode === "import"
+          ? "Imported values are labeled user supplied and are not independently verified."
+          : "Synthetic reflectance fixture for the sample Iowa field only; no satellite observations.";
   $("analyze-btn").innerHTML =
     mode === "import"
       ? "Analyze imported GeoTIFF <span>→</span>"
       : mode === "live"
         ? "Search live imagery <span>→</span>"
-        : "Analyze field <span>→</span>";
+        : mode === "example"
+          ? "Analyze selected area <span>→</span>"
+          : "Analyze field <span>→</span>";
 });
 $<HTMLInputElement>("start-date").addEventListener("change", clearResults);
 $<HTMLInputElement>("end-date").addEventListener("change", clearResults);
@@ -288,7 +380,11 @@ $<HTMLInputElement>("raster-file").addEventListener("change", clearResults);
 async function requestResult() {
   const mode = ($("source-mode") as HTMLSelectElement).value;
   const { start, end } = dates();
-  if (mode !== "import" && (!start || !end || end < start)) {
+  if (
+    mode !== "import" &&
+    mode !== "example" &&
+    (!start || !end || end < start)
+  ) {
     setFeedback("Choose a valid date range.", true);
     return;
   }
@@ -310,9 +406,17 @@ async function requestResult() {
         body: form,
       });
     } else {
-      const body = JSON.stringify({ aoi: resultAoi, start, end });
+      const body = JSON.stringify(
+        mode === "example"
+          ? { aoi: resultAoi }
+          : { aoi: resultAoi, start, end },
+      );
       response = await fetch(
-        mode === "live" ? "/api/catalog/search" : "/api/analysis/demo",
+        mode === "live"
+          ? "/api/catalog/search"
+          : mode === "example"
+            ? "/api/analysis/example"
+            : "/api/analysis/demo",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -610,19 +714,25 @@ function render(data: Result) {
   );
   $("results").removeAttribute("hidden");
   $("result-title").textContent =
-    data.source === "live-sentinel-pixels"
-      ? "Sentinel-2 pixel analysis"
-      : "Seasonal profile";
+    data.source === "bundled-sentinel-example"
+      ? "Selected area · Sentinel-2"
+      : data.source === "live-sentinel-pixels"
+        ? "Sentinel-2 pixel analysis"
+        : "Seasonal profile";
   $("data-badge").textContent =
     data.source_label || "USER IMPORT · source values supplied by user";
   $("data-badge").className =
-    `data-badge ${data.source === "synthetic-demo" ? "demo" : data.source === "live-sentinel-pixels" ? "live" : "imported"}`;
+    `data-badge ${data.source === "synthetic-demo" ? "demo" : data.source === "live-sentinel-pixels" || data.source === "bundled-sentinel-example" ? "live" : "imported"}`;
+  $("ndvi-feature-label").textContent =
+    obs.length > 1 ? "LATEST MEAN NDVI" : "SELECTED AREA · MEAN NDVI";
+  $("mean-ndvi").textContent = obs.at(-1)?.ndvi?.toFixed(3) ?? "—";
   $("area-value").textContent =
     data.area_ha == null ? "—" : `${data.area_ha.toFixed(1)} ha`;
   $("cloud-label").textContent =
     data.source === "synthetic-demo"
       ? "MEAN AOI CLOUD"
-      : data.source === "live-sentinel-pixels"
+      : data.source === "live-sentinel-pixels" ||
+          data.source === "bundled-sentinel-example"
         ? "AOI CLOUD"
         : "CLOUD DATA";
   const clouds = obs
@@ -646,7 +756,8 @@ function render(data: Result) {
     title.textContent = `${latestObs.date} · ${latestObs.resolution_m ?? "unknown"} m`;
     const meta = document.createElement("span");
     meta.textContent =
-      data.source === "live-sentinel-pixels"
+      data.source === "live-sentinel-pixels" ||
+      data.source === "bundled-sentinel-example"
         ? `NDVI ${latestObs.ndvi?.toFixed(3)} · p10 ${latestObs.ndvi_percentiles?.p10.toFixed(3)} / p50 ${latestObs.ndvi_percentiles?.p50.toFixed(3)} / p90 ${latestObs.ndvi_percentiles?.p90.toFixed(3)} · ${latestObs.pixel_count.toLocaleString()} valid of ${(latestObs.pixel_count + (latestObs.masked_pixel_count || 0)).toLocaleString()} AOI pixels · ${latestObs.mask}`
         : `Cloud ${latestObs.cloud_percent ?? "n/a"}% · nodata ${latestObs.nodata_percent ?? "not reported"}% · ${latestObs.mask}`;
     row.append(title, meta);
@@ -673,6 +784,15 @@ function drawChart(observations: Observation[]) {
   if (!observations.length) {
     $("chart").innerHTML =
       '<div class="empty-state">No scenes matched. Try another date range or use the demo fixture.</div>';
+    return;
+  }
+  if (observations.length === 1 && observations[0].ndvi_percentiles) {
+    const observation = observations[0];
+    const { p10, p50, p90 } = observation.ndvi_percentiles!;
+    const position = (value: number) =>
+      32 + ((Math.max(-1, Math.min(1, value)) + 1) / 2) * 456;
+    $("chart").innerHTML =
+      `<svg viewBox="0 0 520 130" role="img" aria-label="NDVI distribution for ${observation.date}: mean ${observation.ndvi?.toFixed(3)}, 10th percentile ${p10.toFixed(3)}, median ${p50.toFixed(3)}, 90th percentile ${p90.toFixed(3)}"><text x="32" y="24">NDVI DISTRIBUTION · VALID PIXELS</text><path class="distribution-track" d="M32 62H488"/><path class="distribution-range" d="M${position(p10)} 62H${position(p90)}"/><circle class="distribution-mean" cx="${position(observation.ndvi ?? 0)}" cy="62" r="7"/><path class="distribution-median" d="M${position(p50)} 48V76"/><text x="32" y="100">−1</text><text x="256" y="100" text-anchor="middle">0</text><text x="488" y="100" text-anchor="end">1</text><text x="32" y="121">p10 ${p10.toFixed(3)} · median ${p50.toFixed(3)} · p90 ${p90.toFixed(3)}</text></svg>`;
     return;
   }
   const W = 520,
@@ -777,5 +897,8 @@ $("export-btn").addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-map.fitBounds(boundary.getBounds(), { padding: [40, 40] });
-setTimeout(() => ($("area-chip").textContent = "Sample boundary · demo"), 0);
+map.fitBounds(exampleBounds, { padding: [40, 40] });
+setTimeout(
+  () => ($("area-chip").textContent = "Sample boundary · 2024 scene"),
+  0,
+);

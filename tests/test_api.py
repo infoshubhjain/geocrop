@@ -42,6 +42,55 @@ def test_health_and_demo_response():
     )
 
 
+def test_bundled_scene_uses_selected_pixels_and_enforces_visible_coverage():
+    west = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-93.503, 41.698],
+                [-93.501, 41.698],
+                [-93.501, 41.700],
+                [-93.503, 41.700],
+                [-93.503, 41.698],
+            ]
+        ],
+    }
+    east = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-93.498, 41.698],
+                [-93.496, 41.698],
+                [-93.496, 41.700],
+                [-93.498, 41.700],
+                [-93.498, 41.698],
+            ]
+        ],
+    }
+    left = client.post("/api/analysis/example", json={"aoi": west})
+    right = client.post("/api/analysis/example", json={"aoi": east})
+    assert left.status_code == right.status_code == 200
+    first = left.json()["observations"][0]
+    second = right.json()["observations"][0]
+    assert first["ndvi"] == pytest.approx(0.3623338149, abs=1e-6)
+    assert second["ndvi"] == pytest.approx(0.3247980865, abs=1e-6)
+    assert first["pixel_count"] > 100
+    assert (
+        left.json()["provenance"]["attribution"]
+        == "Contains modified Copernicus Sentinel data 2024"
+    )
+    assert client.post("/api/analysis/example", json={"aoi": SAMPLE}).status_code == 200
+    outside = {
+        "type": "Polygon",
+        "coordinates": [
+            [[-93.51, 41.7], [-93.508, 41.7], [-93.508, 41.702], [-93.51, 41.702], [-93.51, 41.7]]
+        ],
+    }
+    response = client.post("/api/analysis/example", json={"aoi": outside})
+    assert response.status_code == 422
+    assert "outlined Iowa study area" in response.json()["detail"]
+
+
 def test_synthetic_demo_rejects_areas_outside_its_sample_grid():
     elsewhere = {
         **BODY,

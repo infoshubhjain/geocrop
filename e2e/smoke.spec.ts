@@ -15,7 +15,7 @@ test("production policy permits the default satellite tiles", async ({
   ).toHaveJSProperty("naturalWidth", 256);
 });
 
-test("sample field produces labeled indices and CSV export", async ({
+test("bundled Sentinel example shows its coverage and exports selected pixels", async ({
   page,
 }) => {
   await page.goto("/");
@@ -26,12 +26,16 @@ test("sample field produces labeled indices and CSV export", async ({
   await expect(
     page.locator(".leaflet-tile[src*='World_Imagery']").first(),
   ).toBeVisible();
-  await page.getByRole("button", { name: /Analyze field/ }).click();
-  await expect(page.getByText(/SYNTHETIC DEMO/)).toBeVisible({
+  await expect(page.locator('img[src="/example-ndvi.png"]')).toBeVisible();
+  await expect(page.locator("#example-legend")).toBeVisible();
+  await page.getByRole("button", { name: /Analyze selected area/ }).click();
+  await expect(page.getByText(/BUNDLED SENTINEL-2 EXAMPLE/)).toBeVisible({
     timeout: 15_000,
   });
+  await expect(page.locator("#mean-ndvi")).not.toHaveText("—");
   await expect(page.locator("#chart svg")).toBeVisible();
-  await expect(page.getByText(/Cloud/)).toBeVisible();
+  await expect(page.locator(".distribution-range")).toHaveAttribute("d", /H/);
+  await expect(page.locator("#cloud-label")).toHaveText("AOI CLOUD");
   await page.screenshot({
     path: "test-results/screenshot-desktop.png",
     fullPage: true,
@@ -47,7 +51,7 @@ test("changing a boundary hides old statistics and prevents stale responses", as
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Analyze field/ }).click();
+  await page.getByRole("button", { name: /Analyze selected area/ }).click();
   await expect(page.locator("#chart svg")).toBeVisible();
   await page.getByText("Paste a boundary GeoJSON").click();
   await page.getByLabel("Polygon geometry or Feature · WGS84").fill(
@@ -68,17 +72,17 @@ test("changing a boundary hides old statistics and prevents stale responses", as
   await expect(page.locator("#results")).toBeHidden();
 
   let finishRequest: (() => void) | undefined;
-  await page.route("**/api/analysis/demo", async (route) => {
+  await page.route("**/api/analysis/example", async (route) => {
     await new Promise<void>((resolve) => {
       finishRequest = resolve;
     });
     await route.fulfill({
-      json: { source: "synthetic-demo", observations: [] },
+      json: { source: "bundled-sentinel-example", observations: [] },
     });
   });
-  await page.getByRole("button", { name: /Analyze field/ }).click();
+  await page.getByRole("button", { name: /Analyze selected area/ }).click();
   await expect.poll(() => !!finishRequest).toBe(true);
-  await page.locator("#end-date").fill("2024-08-31");
+  await page.getByLabel("DATA SOURCE").selectOption("live");
   finishRequest?.();
   await expect(page.locator("#results")).toBeHidden();
 });
@@ -106,6 +110,7 @@ test("import ignores disabled dates and plots negative NDVI below zero", async (
     }),
   );
   await page.goto("/");
+  await page.getByLabel("DATA SOURCE").selectOption("demo");
   await page.getByLabel("TO").fill("2024-01-01");
   await page.getByLabel("DATA SOURCE").selectOption("import");
   await page.locator("#raster-file").setInputFiles({
@@ -135,20 +140,26 @@ test("coordinate controls center the map and source selector explains live recor
   await expect(
     page.getByText(/Searches Planetary Computer scenes/),
   ).toBeVisible();
+  await expect(page.locator('img[src="/example-ndvi.png"]')).toBeHidden();
+  await expect(page.locator(".leaflet-control-layers-list")).not.toContainText(
+    "Example NDVI",
+  );
+  await page.getByLabel("DATA SOURCE").selectOption("example");
+  await expect(page.locator('img[src="/example-ndvi.png"]')).toBeVisible();
 });
 
-test("boundary drawing accepts a polygon and explains synthetic coverage limits", async ({
+test("boundary drawing selects part of the example and keeps coverage visible", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Draw boundary/ }).click();
+  await page.getByRole("button", { name: /Select area/ }).click();
   const map = await page.locator("#map").boundingBox();
   if (!map) throw new Error("Map is not visible");
   for (const [x, y] of [
-    [0.35, 0.3],
-    [0.65, 0.3],
-    [0.65, 0.7],
-    [0.35, 0.7],
+    [0.37, 0.4],
+    [0.44, 0.4],
+    [0.44, 0.6],
+    [0.37, 0.6],
   ]) {
     await page.mouse.click(map.x + map.width * x, map.y + map.height * y);
   }
@@ -158,10 +169,30 @@ test("boundary drawing accepts a polygon and explains synthetic coverage limits"
       "Boundary selected. Analyze to validate its geometry and area.",
     ),
   ).toBeVisible();
+  await expect(page.locator("#example-legend")).toBeVisible();
+  await page.getByRole("button", { name: /Analyze selected area/ }).click();
+  await expect(page.getByText(/boundary validated/)).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.screenshot({
+    path: "test-results/screenshot-selection.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Reset sample" }).click();
+  await expect(page.locator("#results")).toBeHidden();
+  await expect(page.locator("#field-name")).toHaveText("Sample field · Iowa");
+});
+
+test("synthetic time series remains labeled and hides the real-scene overlay", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("DATA SOURCE").selectOption("demo");
+  await expect(page.locator("#example-legend")).toBeHidden();
+  await expect(page.locator('img[src="/example-ndvi.png"]')).toBeHidden();
   await page.getByRole("button", { name: /Analyze field/ }).click();
-  await expect(
-    page.getByText(/Synthetic demo covers only the sample Iowa field/),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/SYNTHETIC DEMO/)).toBeVisible();
+  await expect(page.locator("#chart svg")).toBeVisible();
 });
 
 test("keyboard-friendly GeoJSON entry selects a boundary", async ({ page }) => {
@@ -187,7 +218,7 @@ test("keyboard-friendly GeoJSON entry selects a boundary", async ({ page }) => {
       "Boundary selected. Analyze to validate its geometry and area.",
     ),
   ).toBeVisible();
-  await page.getByRole("button", { name: /Analyze field/ }).click();
+  await page.getByRole("button", { name: /Analyze selected area/ }).click();
   await expect(page.getByText(/boundary validated/)).toBeVisible({
     timeout: 15_000,
   });
@@ -205,7 +236,7 @@ test("mobile layout stays within the viewport", async ({ page }) => {
     page.getByRole("heading", { name: "Observe your field" }),
   ).toBeVisible();
   await expect(page.locator("#map")).toBeVisible();
-  await page.getByRole("button", { name: /Analyze field/ }).click();
+  await page.getByRole("button", { name: /Analyze selected area/ }).click();
   await expect(page.locator("#chart svg")).toBeVisible();
   expect(
     await page.locator("body").evaluate((el) => el.scrollWidth),

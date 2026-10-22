@@ -4,6 +4,8 @@ COPY package*.json ./
 RUN npm ci
 COPY index.html tsconfig.json vite.config.ts ./
 COPY src ./src
+COPY public ./public
+COPY geocrop/data/example_scene.json ./geocrop/data/example_scene.json
 RUN npm run build
 
 FROM python:3.12-slim

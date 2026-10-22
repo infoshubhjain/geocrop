@@ -120,6 +120,61 @@ button:disabled {
   display: flex;
   gap: 8px;
 }
+.map-stage {
+  position: relative;
+}
+.map-legend {
+  position: absolute;
+  left: 14px;
+  bottom: 36px;
+  z-index: 500;
+  width: 205px;
+  padding: 10px 12px;
+  background: #fffef4ee;
+  border: 1px solid #d0d9c7;
+  box-shadow: 0 4px 18px #1c332a24;
+  color: #263c2d;
+  pointer-events: none;
+  font-size: 10px;
+}
+.map-legend[hidden],
+.date-grid[hidden] {
+  display: none;
+}
+.map-legend strong,
+.map-legend span,
+.map-legend small {
+  display: block;
+}
+.map-legend > span {
+  margin-top: 2px;
+  color: #5e715e;
+}
+.map-legend small {
+  margin-top: 7px;
+  color: #526452;
+}
+.leaflet-image-layer[src*="example-ndvi.png"] {
+  image-rendering: pixelated;
+}
+.legend-ramp {
+  height: 8px;
+  margin-top: 8px;
+  background: linear-gradient(
+    90deg,
+    #8b5736,
+    #e1c361 40%,
+    #88b05c 70%,
+    #26693c
+  );
+}
+.legend-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  color: #526452;
+  font-variant-numeric: tabular-nums;
+}
 .button {
   border: 0;
   border-radius: 8px;
@@ -375,6 +430,28 @@ button:disabled {
   background: #eef0f6;
   color: #59657e;
 }
+.ndvi-feature {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 2px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.ndvi-feature small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.ndvi-feature strong {
+  font:
+    500 32px Georgia,
+    "Times New Roman",
+    serif;
+  color: #2f694d;
+  font-variant-numeric: tabular-nums;
+}
 .chart-legend {
   display: flex;
   align-items: center;
@@ -427,6 +504,29 @@ button:disabled {
   stroke: #e8ece6;
   stroke-width: 1;
   stroke-dasharray: 2 4;
+}
+.distribution-track,
+.distribution-range,
+.distribution-median {
+  fill: none;
+  stroke-linecap: round;
+}
+.distribution-track {
+  stroke: #e5e9df;
+  stroke-width: 12;
+}
+.distribution-range {
+  stroke: #a8bf83;
+  stroke-width: 12;
+}
+.distribution-median {
+  stroke: #254f38;
+  stroke-width: 2;
+}
+.distribution-mean {
+  fill: #c76a3d;
+  stroke: #fffefa;
+  stroke-width: 2;
 }
 .line-ndvi,
 .line-ndmi {
@@ -916,5 +1016,12 @@ body {
   }
   .panel {
     border-left: 0;
+  }
+  .map-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .map-actions {
+    flex-wrap: wrap;
   }
 }

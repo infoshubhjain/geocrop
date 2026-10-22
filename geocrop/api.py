@@ -20,6 +20,8 @@ from rasterio.mask import mask as raster_mask
 from rasterio.warp import transform_geom
 from starlette.datastructures import UploadFile
 
+from .example import METADATA as EXAMPLE_METADATA
+from .example import analyze_example
 from .geo import supports_synthetic, synthetic_scene, validate_aoi, validate_dates
 from .live import MAX_LIVE_PIXELS, analyze_cogs
 
@@ -58,6 +60,10 @@ class AnalysisRequest(BaseModel):
 class LiveAnalysisRequest(BaseModel):
     aoi: dict
     item_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+
+
+class ExampleAnalysisRequest(BaseModel):
+    aoi: dict
 
 
 async def bounded_json(
@@ -322,6 +328,40 @@ async def demo(payload: AnalysisRequest):
             "formulas": "NDVI=(NIR−Red)/(NIR+Red); NDMI=(NIR−SWIR)/(NIR+SWIR)",
             "crs": "EPSG:32615 analysis grid; AOI supplied as EPSG:4326",
             "resampling": "none; synthetic bands share a grid",
+        },
+    }
+
+
+@app.post("/api/analysis/example")
+async def example_analysis(payload: ExampleAnalysisRequest):
+    try:
+        geom, area = validate_aoi(payload.aoi, MAX_AOI_HA)
+        summary = analyze_example(geom)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "source": "bundled-sentinel-example",
+        "source_label": f"BUNDLED SENTINEL-2 EXAMPLE · {EXAMPLE_METADATA['attribution']}",
+        "area_ha": round(area, 2),
+        "observations": [
+            {
+                "date": EXAMPLE_METADATA["acquired"][:10],
+                "scene_id": EXAMPLE_METADATA["scene_id"],
+                "acquired": EXAMPLE_METADATA["acquired"],
+                "ndmi": None,
+                "resolution_m": 10,
+                "mask": "Sentinel-2 L2A SCL cloud, shadow, snow, unclassified, and nodata classes excluded",
+                **summary,
+            }
+        ],
+        "provenance": {
+            "provider": "Copernicus Sentinel-2 L2A via Microsoft Planetary Computer",
+            "attribution": EXAMPLE_METADATA["attribution"],
+            "scene_id": EXAMPLE_METADATA["scene_id"],
+            "acquired": EXAMPLE_METADATA["acquired"],
+            "stac_url": EXAMPLE_METADATA["stac_url"],
+            "processing": EXAMPLE_METADATA["processing"],
+            "coverage_note": "Bundled historical scene; values describe only selected, valid pixels on the acquisition date, not current crop health.",
         },
     }
 

@@ -1,0 +1,20 @@
+{
+  "scene_id": "S2A_MSIL2A_20240609T165901_R069_T15TVG_20240610T012559",
+  "acquired": "2024-06-09T16:59:01.024000Z",
+  "bounds": [
+    [41.69465353312616, -93.50563792400098],
+    [41.70471969524192, -93.49215600821691]
+  ],
+  "grid": {
+    "crs": "EPSG:3857",
+    "west": -10409000.0,
+    "north": 5116850.0,
+    "pixel_m": 13.4,
+    "width": 112,
+    "height": 112
+  },
+  "valid_pixels": 12544,
+  "attribution": "Contains modified Copernicus Sentinel data 2024",
+  "stac_url": "https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a/items/S2A_MSIL2A_20240609T165901_R069_T15TVG_20240610T012559",
+  "processing": "B04/B08 bilinear and SCL nearest-neighbor resampling to an EPSG:3857 grid; invalid SCL classes masked"
+}

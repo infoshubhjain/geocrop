@@ -29,5 +29,8 @@ pythonpath = ["."]
 [tool.setuptools.packages.find]
 include = ["geocrop*"]
 
+[tool.setuptools.package-data]
+geocrop = ["data/*.json", "data/*.npz"]
+
 [tool.ruff]
 line-length = 100
