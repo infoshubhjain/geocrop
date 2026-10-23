@@ -54,7 +54,7 @@ const sample: GeoJSON.Feature<GeoJSON.Polygon> = {
 };
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
-  <header class="topbar"><a class="brand" href="#"><span class="brand-mark" aria-hidden="true"><span></span></span><span>GeoCrop<small>FIELD INTELLIGENCE</small></span></a><div class="top-meta"><span class="live-dot"></span> Decision support · Preview</div></header>
+  <header class="topbar"><a class="brand" href="#"><span class="brand-mark" aria-hidden="true"><span></span></span><span>GeoCrop<small>SATELLITE FIELD NOTEBOOK</small></span></a><div class="top-meta"><span class="live-dot"></span> Decision support · Preview</div></header>
   <main class="layout">
     <section class="map-column" aria-label="Field map">
       <div class="map-toolbar"><div class="map-label"><span class="eyebrow">WORKSPACE / IOWA STUDY AREA</span><strong id="field-name">Sample field · Iowa</strong></div><div class="map-actions"><button id="reset-btn" class="button secondary">Reset sample</button><button id="draw-btn" class="button secondary">＋ Select area</button><button id="finish-btn" class="button primary" disabled>Finish boundary</button></div></div>
@@ -64,8 +64,8 @@ app.innerHTML = `
       <details class="geojson-entry"><summary>Paste a boundary GeoJSON</summary><label for="geojson-input" class="muted small">Polygon geometry or Feature · WGS84</label><textarea id="geojson-input" rows="3" placeholder='{"type":"Polygon","coordinates":[[[-93.5,41.7],…]]}'></textarea><button id="apply-geojson" class="button secondary">Use this boundary</button></details>
     </section>
     <aside class="panel" aria-label="Analysis controls and results">
-      <div class="panel-heading"><div><span class="eyebrow">CROP CONDITION</span><h1>Observe your field</h1></div><span class="status-pill">BETA</span></div>
-      <p class="intro">Explore a dated scene by area, or switch sources to compare dates. Indicators describe surface reflectance, not crop health or yield.</p>
+      <div class="panel-heading"><div><span class="eyebrow">CROP CONDITION</span><h1>Field image lab</h1></div><span class="status-pill">BETA</span></div>
+      <p class="intro">Draw a boundary, inspect the pixels, and compare observations by date. Reflectance indicators do not diagnose crop health or predict yield.</p>
       <div class="control-card"><label class="field-label" for="source-mode">DATA SOURCE</label><select id="source-mode"><option value="example">Example scene · real Sentinel‑2 pixels</option><option value="demo">Synthetic time series · illustrative</option><option value="live">Live catalog · Sentinel‑2 L2A</option><option value="import">Import GeoTIFF</option></select><div id="source-note" class="helper">Draw any area inside the outlined study area. The NDVI overlay and analysis use one bundled scene acquired 9 June 2024.</div>
         <div id="import-row" hidden><label class="field-label" for="raster-file">3-band reflectance GeoTIFF</label><input id="raster-file" type="file" accept=".tif,.tiff,image/tiff"><div class="helper">One scene; date range is not used. Band 1 red, 2 NIR, 3 SWIR; unit reflectance 0–1. Up to 20 MB.</div></div>
         <div id="date-grid" class="date-grid" hidden><label>FROM<input type="date" id="start-date" value="2024-04-01" disabled></label><label>TO<input type="date" id="end-date" value="2024-09-30" disabled></label></div>
@@ -78,6 +78,7 @@ app.innerHTML = `
         <div class="ndvi-feature"><div><span id="ndvi-feature-label" class="eyebrow">SELECTED AREA · MEAN NDVI</span><small>Reflectance index, not crop health</small></div><strong id="mean-ndvi">—</strong></div>
         <div class="chart-legend"><span><i class="swatch ndvi"></i>NDVI</span><span id="ndmi-legend"><i class="swatch ndmi"></i>NDMI</span><span id="chart-range" class="muted"></span></div>
         <div id="chart" class="chart" role="img" aria-label="NDVI and NDMI time series"></div>
+        <div id="observation-list" class="observation-list" aria-label="Inspect dated observations"></div>
         <div id="scene-list" class="scene-list"></div>
         <div class="quality-grid"><div><span id="cloud-label" class="eyebrow">AOI CLOUD</span><strong id="cloud-value">—</strong></div><div><span class="eyebrow">VALID PIXELS</span><strong id="pixel-value">—</strong></div><div><span class="eyebrow">SELECTED AREA</span><strong id="area-value">—</strong></div></div>
         <details class="provenance"><summary>Methods & provenance</summary><dl id="provenance"></dl></details>
@@ -747,6 +748,41 @@ function render(data: Result) {
   $("chart-range").textContent =
     `${obs.length} observation${obs.length === 1 ? "" : "s"}`;
   drawChart(obs);
+  const observationList = $("observation-list");
+  observationList.replaceChildren();
+  const selectObservation = (index: number) => {
+    const selected = obs[index];
+    if (!selected) return;
+    $("mean-ndvi").textContent = selected.ndvi?.toFixed(3) ?? "—";
+    $("ndvi-feature-label").textContent = `${selected.date} · MEAN NDVI`;
+    $("cloud-value").textContent =
+      selected.cloud_percent == null
+        ? "not provided"
+        : `${selected.cloud_percent.toFixed(1)}%`;
+    $("pixel-value").textContent = selected.pixel_count.toLocaleString();
+    observationList
+      .querySelectorAll("button")
+      .forEach((button, buttonIndex) => {
+        button.setAttribute("aria-pressed", String(buttonIndex === index));
+      });
+  };
+  for (const [index, observation] of obs.entries()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "observation-item";
+    button.setAttribute(
+      "aria-label",
+      `Inspect observation ${observation.date}`,
+    );
+    const date = document.createElement("span");
+    date.textContent = observation.date;
+    const value = document.createElement("strong");
+    value.textContent = `NDVI ${observation.ndvi?.toFixed(3) ?? "—"}`;
+    button.append(date, value);
+    button.addEventListener("click", () => selectObservation(index));
+    observationList.append(button);
+  }
+  if (obs.length) selectObservation(obs.length - 1);
   $("scene-list").replaceChildren();
   if (obs.length) {
     const latestObs = obs.at(-1)!;

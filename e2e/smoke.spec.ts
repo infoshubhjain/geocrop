@@ -20,7 +20,7 @@ test("bundled Sentinel example shows its coverage and exports selected pixels", 
 }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Observe your field" }),
+    page.getByRole("heading", { name: "Field image lab" }),
   ).toBeVisible();
   await expect(page.locator(".leaflet-control-layers-toggle")).toBeVisible();
   await expect(
@@ -193,6 +193,10 @@ test("synthetic time series remains labeled and hides the real-scene overlay", a
   await page.getByRole("button", { name: /Analyze field/ }).click();
   await expect(page.getByText(/SYNTHETIC DEMO/)).toBeVisible();
   await expect(page.locator("#chart svg")).toBeVisible();
+  const firstObservation = page.locator("#observation-list button").first();
+  await firstObservation.click();
+  await expect(firstObservation).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#ndvi-feature-label")).toContainText("MEAN NDVI");
 });
 
 test("keyboard-friendly GeoJSON entry selects a boundary", async ({ page }) => {
@@ -233,7 +237,7 @@ test("mobile layout stays within the viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Observe your field" }),
+    page.getByRole("heading", { name: "Field image lab" }),
   ).toBeVisible();
   await expect(page.locator("#map")).toBeVisible();
   await page.getByRole("button", { name: /Analyze selected area/ }).click();
