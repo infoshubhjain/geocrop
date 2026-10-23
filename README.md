@@ -16,16 +16,14 @@ GeoCrop is a responsive, map-first demonstrator for exploring vegetation indicat
 
 ## Quick start
 
-Requirements: Python 3.11+, Node.js 20+, and a modern browser. No credentials are needed for the bundled example or synthetic demo.
+Requirements: Python 3.11+ (3.12 recommended), [uv](https://docs.astral.sh/uv/), Node.js 20+, and a modern browser. No credentials are needed for the bundled example or synthetic demo.
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[test]'
+uv sync --locked --extra test --python 3.12
 npm ci
 ```
 
-In one terminal run `uvicorn geocrop.api:app --reload`; in another run `npm run dev`. Open <http://localhost:5173>. The sample Iowa boundary is ready to analyze against the bundled 2024 scene. To run the production build locally, use `npm run build` then `uvicorn geocrop.api:app`; FastAPI serves `dist/` when it exists.
+In one terminal run `uv run --locked uvicorn geocrop.api:app --reload`; in another run `npm run dev`. Open <http://localhost:5173>. The sample Iowa boundary is ready to analyze against the bundled 2024 scene. To run the production build locally, use `npm run build` then `uv run --locked uvicorn geocrop.api:app`; FastAPI serves `dist/` when it exists. `uv.lock` pins the Python dependency graph for local, CI, and Docker installs.
 
 ## What works
 

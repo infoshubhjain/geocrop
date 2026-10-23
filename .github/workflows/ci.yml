@@ -14,16 +14,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-      - run: pip install -e '.[test]'
+      - run: pip install uv==0.12.15
+      - run: uv sync --locked --extra test --python python
       - run: npm ci
-      - run: ruff check geocrop tests scripts
-      - run: ruff format --check geocrop tests scripts
-      - run: pytest
+      - run: .venv/bin/ruff check geocrop tests scripts
+      - run: .venv/bin/ruff format --check geocrop tests scripts
+      - run: .venv/bin/pytest
       - run: npm run typecheck
       - run: npx playwright install --with-deps chromium
       - run: npm test

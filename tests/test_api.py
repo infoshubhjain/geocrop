@@ -180,6 +180,44 @@ def test_catalog_rejects_malformed_scene_list(monkeypatch):
     assert "invalid scene list" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("field", ["properties", "assets"])
+def test_catalog_rejects_malformed_scene_record(monkeypatch, field):
+    api_module.cache.clear()
+
+    async def malformed(_client, _url, **_kwargs):
+        item = {"id": "scene-1", "properties": {}, "assets": {}}
+        item[field] = []
+        return {"features": [item]}
+
+    monkeypatch.setattr(api_module, "bounded_json", malformed)
+    response = client.post("/api/catalog/search", json=BODY)
+    assert response.status_code == 502
+    assert "invalid scene record" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("field", ["assets", "raster:bands"])
+def test_live_analysis_rejects_malformed_scene_metadata(monkeypatch, field):
+    async def malformed(_client, _url, **_kwargs):
+        assets = {
+            name: {"href": f"https://sample.blob.core.windows.net/{name}.tif"}
+            for name in ("B04", "B08", "SCL")
+        }
+        if field == "assets":
+            assets = []
+        else:
+            assets["B04"][field] = ["invalid"]
+        return {
+            "collection": "sentinel-2-l2a",
+            "id": "scene-1",
+            "properties": {"datetime": "2024-06-01T10:00:00Z"},
+            "assets": assets,
+        }
+
+    monkeypatch.setattr(api_module, "bounded_json", malformed)
+    response = client.post("/api/analysis/live", json={"aoi": SAMPLE, "item_id": "scene-1"})
+    assert response.status_code == 502
+
+
 def test_api_errors_and_headers_are_safe():
     response = client.get("/api/health")
     assert response.headers["x-content-type-options"] == "nosniff"

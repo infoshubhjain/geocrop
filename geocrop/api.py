@@ -165,6 +165,13 @@ async def search(payload: AnalysisRequest):
     items = []
     for item in features:
         props = item.get("properties", {})
+        assets = item.get("assets", {})
+        if (
+            not isinstance(props, dict)
+            or not isinstance(assets, dict)
+            or not isinstance(item.get("id"), str)
+        ):
+            raise HTTPException(502, "Live catalog returned an invalid scene record.")
         items.append(
             {
                 "id": item.get("id"),
@@ -174,9 +181,7 @@ async def search(payload: AnalysisRequest):
                 "processing_level": props.get("processing:level", "L2A"),
                 "gsd_m": props.get("gsd", 10),
                 "assets": [
-                    name
-                    for name in ("B04", "B08", "B11", "SCL", "visual")
-                    if name in item.get("assets", {})
+                    name for name in ("B04", "B08", "B11", "SCL", "visual") if name in assets
                 ],
                 "footprint": item.get("geometry"),
                 "source": "Microsoft Planetary Computer / Copernicus Sentinel-2 L2A",
@@ -207,6 +212,8 @@ async def live_analysis(payload: LiveAnalysisRequest):
                     "Selected record is not a Sentinel-2 L2A scene from the configured catalog."
                 )
             asset_data = item.get("assets", {})
+            if not isinstance(asset_data, dict):
+                raise TypeError("Selected scene has invalid asset metadata.")
             hrefs = {}
             scales = {}
             for name in ("B04", "B08", "SCL"):
@@ -222,7 +229,10 @@ async def live_analysis(payload: LiveAnalysisRequest):
                         f"The scene has no supported public {name} Cloud-Optimized GeoTIFF asset."
                     )
                 if name != "SCL":
-                    band = (asset.get("raster:bands") or [{}])[0]
+                    bands = asset.get("raster:bands") or [{}]
+                    if not isinstance(bands, list) or not bands or not isinstance(bands[0], dict):
+                        raise ValueError("Selected scene has invalid raster band metadata.")
+                    band = bands[0]
                     scales[name] = (float(band.get("scale", 0.0001)), float(band.get("offset", 0)))
                 hrefs[name] = href
 
@@ -264,6 +274,8 @@ async def live_analysis(payload: LiveAnalysisRequest):
         )
         raise HTTPException(502, message) from exc
     props = item.get("properties", {})
+    if not isinstance(props, dict) or not isinstance(props.get("datetime"), str):
+        raise HTTPException(502, "Selected scene has invalid acquisition metadata.")
     year = str(props.get("datetime", ""))[:4]
     if len(year) != 4 or not year.isdigit():
         raise HTTPException(502, "Selected scene has no valid acquisition year.")
@@ -372,6 +384,58 @@ async def example_analysis(payload: ExampleAnalysisRequest):
     }
 
 
+def _analyze_import(raw: bytes, aoi: dict, area: float) -> dict:
+    with MemoryFile(raw) as memfile, memfile.open() as dataset:
+        if dataset.crs is None or dataset.count < 3 or dataset.width * dataset.height > 5_000_000:
+            raise HTTPException(
+                422,
+                "GeoTIFF needs a CRS, 3 bands (red, NIR, SWIR), and at most 5 million pixels.",
+            )
+        transformed = transform_geom("EPSG:4326", dataset.crs, aoi)
+        pixels, _ = raster_mask(dataset, [transformed], crop=True, indexes=[1, 2, 3], filled=False)
+        valid = ~np.ma.getmaskarray(pixels).any(axis=0)
+        red, nir, swir = [pixels[i].astype("float32") for i in range(3)]
+        valid &= (
+            np.isfinite(red)
+            & np.isfinite(nir)
+            & np.isfinite(swir)
+            & ((nir + red) != 0)
+            & ((nir + swir) != 0)
+        )
+        if not valid.any():
+            raise HTTPException(422, "No valid pixels overlap this boundary.")
+        ndvi = (nir - red) / (nir + red)
+        ndmi = (nir - swir) / (nir + swir)
+        if any(np.any((band[valid] < 0) | (band[valid] > 1)) for band in (red, nir, swir)):
+            raise HTTPException(422, "Imported reflectance must be scaled to 0–1 before upload.")
+        return {
+            "source": "user-import",
+            "source_label": "USER IMPORT · reflectance scale supplied by user",
+            "area_ha": round(area, 2),
+            "observations": [
+                {
+                    "date": dataset.tags().get("ACQUISITION_DATE", "date not supplied"),
+                    "ndvi": float(ndvi[valid].mean()),
+                    "ndmi": float(ndmi[valid].mean()),
+                    "pixel_count": int(valid.sum()),
+                    "cloud_percent": None,
+                    "resolution_m": None,
+                    "mask": "dataset nodata/mask only",
+                }
+            ],
+            "provenance": {
+                "sensor": dataset.tags().get("SENSOR", "user supplied; unknown"),
+                "bands": "Band 1 red, band 2 NIR, band 3 SWIR; unit reflectance 0–1",
+                "processing_level": "user supplied; not independently verified",
+                "resolution_m": None,
+                "mask": "dataset nodata/mask only",
+                "formulas": "NDVI=(NIR−Red)/(NIR+Red); NDMI=(NIR−SWIR)/(NIR+SWIR)",
+                "crs": dataset.crs.to_string(),
+                "resampling": "none",
+            },
+        }
+
+
 @app.post("/api/analysis/import")
 async def import_raster(request: Request):
     form = await request.form(max_files=1, max_fields=1, max_part_size=MAX_IMPORT_BYTES)
@@ -387,63 +451,7 @@ async def import_raster(request: Request):
         raw = await upload.read(MAX_IMPORT_BYTES + 1)
         if len(raw) > MAX_IMPORT_BYTES:
             raise HTTPException(413, "GeoTIFF must be 20 MB or smaller.")
-        with MemoryFile(raw) as memfile, memfile.open() as dataset:
-            if (
-                dataset.crs is None
-                or dataset.count < 3
-                or dataset.width * dataset.height > 5_000_000
-            ):
-                raise HTTPException(
-                    422,
-                    "GeoTIFF needs a CRS, 3 bands (red, NIR, SWIR), and at most 5 million pixels.",
-                )
-            transformed = transform_geom("EPSG:4326", dataset.crs, aoi)
-            pixels, _ = raster_mask(
-                dataset, [transformed], crop=True, indexes=[1, 2, 3], filled=False
-            )
-            valid = ~np.ma.getmaskarray(pixels).any(axis=0)
-            red, nir, swir = [pixels[i].astype("float32") for i in range(3)]
-            valid &= (
-                np.isfinite(red)
-                & np.isfinite(nir)
-                & np.isfinite(swir)
-                & ((nir + red) != 0)
-                & ((nir + swir) != 0)
-            )
-            if not valid.any():
-                raise HTTPException(422, "No valid pixels overlap this boundary.")
-            ndvi = (nir - red) / (nir + red)
-            ndmi = (nir - swir) / (nir + swir)
-            if any(np.any((band[valid] < 0) | (band[valid] > 1)) for band in (red, nir, swir)):
-                raise HTTPException(
-                    422, "Imported reflectance must be scaled to 0–1 before upload."
-                )
-            return {
-                "source": "user-import",
-                "source_label": "USER IMPORT · reflectance scale supplied by user",
-                "area_ha": round(area, 2),
-                "observations": [
-                    {
-                        "date": dataset.tags().get("ACQUISITION_DATE", "date not supplied"),
-                        "ndvi": float(ndvi[valid].mean()),
-                        "ndmi": float(ndmi[valid].mean()),
-                        "pixel_count": int(valid.sum()),
-                        "cloud_percent": None,
-                        "resolution_m": None,
-                        "mask": "dataset nodata/mask only",
-                    }
-                ],
-                "provenance": {
-                    "sensor": dataset.tags().get("SENSOR", "user supplied; unknown"),
-                    "bands": "Band 1 red, band 2 NIR, band 3 SWIR; unit reflectance 0–1",
-                    "processing_level": "user supplied; not independently verified",
-                    "resolution_m": None,
-                    "mask": "dataset nodata/mask only",
-                    "formulas": "NDVI=(NIR−Red)/(NIR+Red); NDMI=(NIR−SWIR)/(NIR+SWIR)",
-                    "crs": dataset.crs.to_string(),
-                    "resampling": "none",
-                },
-            }
+        return await asyncio.to_thread(_analyze_import, raw, aoi, area)
     except HTTPException:
         raise
     except Exception as exc:
