@@ -730,26 +730,18 @@ function render(data: Result) {
   $("area-value").textContent =
     data.area_ha == null ? "—" : `${data.area_ha.toFixed(1)} ha`;
   $("cloud-label").textContent =
-    data.source === "synthetic-demo"
-      ? "MEAN AOI CLOUD"
-      : data.source === "live-sentinel-pixels" ||
-          data.source === "bundled-sentinel-example"
-        ? "AOI CLOUD"
-        : "CLOUD DATA";
-  const clouds = obs
-    .map((o) => o.cloud_percent)
-    .filter((x): x is number => x !== null);
-  $("cloud-value").textContent = clouds.length
-    ? `${(clouds.reduce((a, b) => a + b, 0) / clouds.length).toFixed(1)}%`
-    : "not provided";
+    data.source === "user-import"
+      ? "CLOUD DATA · SELECTED DATE"
+      : "AOI CLOUD · SELECTED DATE";
   $("pixel-value").textContent = obs.length
     ? (obs.at(-1)?.pixel_count ?? 0).toLocaleString()
     : "—";
   $("chart-range").textContent =
     `${obs.length} observation${obs.length === 1 ? "" : "s"}`;
-  drawChart(obs);
   const observationList = $("observation-list");
   observationList.replaceChildren();
+  const sceneList = $("scene-list");
+  sceneList.replaceChildren();
   const selectObservation = (index: number) => {
     const selected = obs[index];
     if (!selected) return;
@@ -760,6 +752,19 @@ function render(data: Result) {
         ? "not provided"
         : `${selected.cloud_percent.toFixed(1)}%`;
     $("pixel-value").textContent = selected.pixel_count.toLocaleString();
+    drawChart(obs, index);
+    const row = document.createElement("div");
+    row.className = "scene-row";
+    const title = document.createElement("strong");
+    title.textContent = `${selected.date} · ${selected.resolution_m ?? "unknown"} m`;
+    const meta = document.createElement("span");
+    meta.textContent =
+      data.source === "live-sentinel-pixels" ||
+      data.source === "bundled-sentinel-example"
+        ? `NDVI ${selected.ndvi?.toFixed(3) ?? "n/a"} · p10 ${selected.ndvi_percentiles?.p10.toFixed(3) ?? "n/a"} / p50 ${selected.ndvi_percentiles?.p50.toFixed(3) ?? "n/a"} / p90 ${selected.ndvi_percentiles?.p90.toFixed(3) ?? "n/a"} · ${selected.pixel_count.toLocaleString()} valid of ${(selected.pixel_count + (selected.masked_pixel_count || 0)).toLocaleString()} AOI pixels · ${selected.mask}`
+        : `Cloud ${selected.cloud_percent ?? "n/a"}% · nodata ${selected.nodata_percent ?? "not reported"}% · ${selected.mask}`;
+    row.append(title, meta);
+    sceneList.replaceChildren(row);
     observationList
       .querySelectorAll("button")
       .forEach((button, buttonIndex) => {
@@ -783,22 +788,7 @@ function render(data: Result) {
     observationList.append(button);
   }
   if (obs.length) selectObservation(obs.length - 1);
-  $("scene-list").replaceChildren();
-  if (obs.length) {
-    const latestObs = obs.at(-1)!;
-    const row = document.createElement("div");
-    row.className = "scene-row";
-    const title = document.createElement("strong");
-    title.textContent = `${latestObs.date} · ${latestObs.resolution_m ?? "unknown"} m`;
-    const meta = document.createElement("span");
-    meta.textContent =
-      data.source === "live-sentinel-pixels" ||
-      data.source === "bundled-sentinel-example"
-        ? `NDVI ${latestObs.ndvi?.toFixed(3)} · p10 ${latestObs.ndvi_percentiles?.p10.toFixed(3)} / p50 ${latestObs.ndvi_percentiles?.p50.toFixed(3)} / p90 ${latestObs.ndvi_percentiles?.p90.toFixed(3)} · ${latestObs.pixel_count.toLocaleString()} valid of ${(latestObs.pixel_count + (latestObs.masked_pixel_count || 0)).toLocaleString()} AOI pixels · ${latestObs.mask}`
-        : `Cloud ${latestObs.cloud_percent ?? "n/a"}% · nodata ${latestObs.nodata_percent ?? "not reported"}% · ${latestObs.mask}`;
-    row.append(title, meta);
-    $("scene-list").append(row);
-  }
+  if (!obs.length) drawChart(obs);
   $("provenance").replaceChildren();
   addProvenance(data.provenance || {});
   setFeedback(
@@ -816,7 +806,10 @@ function addProvenance(values: Record<string, unknown>) {
   }
 }
 
-function drawChart(observations: Observation[]) {
+function drawChart(
+  observations: Observation[],
+  selectedIndex = observations.length - 1,
+) {
   if (!observations.length) {
     $("chart").innerHTML =
       '<div class="empty-state">No scenes matched. Try another date range or use the demo fixture.</div>';
@@ -872,7 +865,7 @@ function drawChart(observations: Observation[]) {
   const nodes = observations
     .map(
       (o, i) =>
-        `<circle cx="${x(i)}" cy="${y(o.ndvi)}" r="3.5" fill="#c76a3d"><title>${safe(o.date)} NDVI ${o.ndvi?.toFixed(3)}</title></circle>${o.ndmi === null ? "" : `<circle cx="${x(i)}" cy="${y(o.ndmi)}" r="3" fill="#4f8874"><title>${safe(o.date)} NDMI ${o.ndmi?.toFixed(3)}</title></circle>`}`,
+        `<circle cx="${x(i)}" cy="${y(o.ndvi)}" r="${i === selectedIndex ? 6 : 3.5}" fill="#c76a3d" stroke="${i === selectedIndex ? "#332e28" : "none"}" stroke-width="2"><title>${safe(o.date)} NDVI ${o.ndvi?.toFixed(3)}</title></circle>${o.ndmi === null ? "" : `<circle cx="${x(i)}" cy="${y(o.ndmi)}" r="3" fill="#4f8874"><title>${safe(o.date)} NDMI ${o.ndmi?.toFixed(3)}</title></circle>`}`,
     )
     .join("");
   $("chart").innerHTML =

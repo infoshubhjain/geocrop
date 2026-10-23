@@ -35,7 +35,9 @@ test("bundled Sentinel example shows its coverage and exports selected pixels", 
   await expect(page.locator("#mean-ndvi")).not.toHaveText("—");
   await expect(page.locator("#chart svg")).toBeVisible();
   await expect(page.locator(".distribution-range")).toHaveAttribute("d", /H/);
-  await expect(page.locator("#cloud-label")).toHaveText("AOI CLOUD");
+  await expect(page.locator("#cloud-label")).toHaveText(
+    "AOI CLOUD · SELECTED DATE",
+  );
   await page.screenshot({
     path: "test-results/screenshot-desktop.png",
     fullPage: true,
@@ -196,7 +198,15 @@ test("synthetic time series remains labeled and hides the real-scene overlay", a
   const firstObservation = page.locator("#observation-list button").first();
   await firstObservation.click();
   await expect(firstObservation).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#ndvi-feature-label")).toContainText("MEAN NDVI");
+  const selectedDate = (await firstObservation.textContent())!.slice(0, 10);
+  await expect(page.locator("#ndvi-feature-label")).toContainText(selectedDate);
+  await expect(page.locator("#scene-list")).toContainText(selectedDate);
+  await expect(page.locator("#cloud-label")).toHaveText(
+    "AOI CLOUD · SELECTED DATE",
+  );
+  await expect(
+    page.locator('#chart circle[fill="#c76a3d"]').first(),
+  ).toHaveAttribute("r", "6");
 });
 
 test("keyboard-friendly GeoJSON entry selects a boundary", async ({ page }) => {
@@ -340,7 +350,9 @@ test("analyzes selected Sentinel scenes chronologically and exports scene proven
     .getByRole("button", { name: "Analyze selected scenes (max 5)" })
     .click();
   await expect(page.getByText(/MULTI-SCENE ANALYSIS/)).toBeVisible();
-  await expect(page.locator("#cloud-label")).toHaveText("AOI CLOUD");
+  await expect(page.locator("#cloud-label")).toHaveText(
+    "AOI CLOUD · SELECTED DATE",
+  );
   await expect(page.locator("#ndmi-legend")).toBeHidden();
   await expect(page.locator("#chart svg")).toBeVisible();
   const positions = await page

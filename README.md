@@ -1,5 +1,7 @@
 # GeoCrop
 
+[Frontend release audit](docs/frontend-audit.md)
+
 GeoCrop is a responsive satellite field notebook for exploring vegetation indicators over a field boundary. Its default selectable example uses bundled, dated Sentinel-2 pixels. It is decision support, not agronomic diagnosis or yield prediction.
 
 **Live demo:** [geocrop-three.vercel.app](https://geocrop-three.vercel.app)
