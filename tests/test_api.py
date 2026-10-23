@@ -152,6 +152,34 @@ def test_provider_json_reader_enforces_streamed_response_limit():
     anyio.run(check)
 
 
+def test_provider_json_reader_rejects_non_object_json():
+    async def check():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=[]))
+        ) as mocked:
+            with pytest.raises(TypeError, match="invalid JSON object"):
+                await bounded_json(mocked, "https://example.test/item")
+
+    anyio.run(check)
+
+
+def test_catalog_rejects_malformed_scene_list(monkeypatch):
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        api_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(200, json={"features": "invalid"})
+            ),
+            **kwargs,
+        ),
+    )
+    response = client.post("/api/catalog/search", json=BODY)
+    assert response.status_code == 502
+    assert "invalid scene list" in response.json()["detail"]
+
+
 def test_api_errors_and_headers_are_safe():
     response = client.get("/api/health")
     assert response.headers["x-content-type-options"] == "nosniff"

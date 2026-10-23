@@ -85,7 +85,10 @@ async def bounded_json(
             if size > limit:
                 raise ValueError("Provider response exceeded its size limit.")
             chunks.append(chunk)
-    return json.loads(b"".join(chunks))
+    data = json.loads(b"".join(chunks))
+    if not isinstance(data, dict):
+        raise TypeError("Provider returned an invalid JSON object.")
+    return data
 
 
 def checked(payload: AnalysisRequest):
@@ -152,12 +155,15 @@ async def search(payload: AnalysisRequest):
                 except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError):
                     if attempt == 1:
                         raise
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
         raise HTTPException(
             502, "Live catalog is unavailable. Try again or use the labeled demo data."
         ) from exc
+    features = data.get("features")
+    if not isinstance(features, list) or any(not isinstance(item, dict) for item in features):
+        raise HTTPException(502, "Live catalog returned an invalid scene list.")
     items = []
-    for item in data.get("features", []):
+    for item in features:
         props = item.get("properties", {})
         items.append(
             {
