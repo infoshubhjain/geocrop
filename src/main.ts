@@ -78,6 +78,7 @@ app.innerHTML = `
         <div class="ndvi-feature"><div><span id="ndvi-feature-label" class="eyebrow">SELECTED AREA · MEAN NDVI</span><small>Reflectance index, not crop health</small></div><strong id="mean-ndvi">—</strong></div>
         <div class="chart-legend"><span><i class="swatch ndvi"></i>NDVI</span><span id="ndmi-legend"><i class="swatch ndmi"></i>NDMI</span><span id="chart-range" class="muted"></span></div>
         <div id="chart" class="chart" role="img" aria-label="NDVI and NDMI time series"></div>
+        <p id="chart-help" class="chart-help"></p>
         <div id="observation-list" class="observation-list" aria-label="Inspect dated observations"></div>
         <div id="scene-list" class="scene-list"></div>
         <div class="quality-grid"><div><span id="cloud-label" class="eyebrow">AOI CLOUD</span><strong id="cloud-value">—</strong></div><div><span class="eyebrow">VALID PIXELS</span><strong id="pixel-value">—</strong></div><div><span class="eyebrow">SELECTED AREA</span><strong id="area-value">—</strong></div></div>
@@ -738,6 +739,12 @@ function render(data: Result) {
     : "—";
   $("chart-range").textContent =
     `${obs.length} observation${obs.length === 1 ? "" : "s"}`;
+  $("chart-help").textContent =
+    obs.length > 1
+      ? "Click a plotted point or use the dated observations below. Missing values leave gaps."
+      : obs[0]?.ndvi_percentiles
+        ? "The range shows valid-pixel variation within the selected scene."
+        : "Inspect the dated observation and its quality metadata below.";
   const observationList = $("observation-list");
   observationList.replaceChildren();
   const sceneList = $("scene-list");
@@ -753,6 +760,13 @@ function render(data: Result) {
         : `${selected.cloud_percent.toFixed(1)}%`;
     $("pixel-value").textContent = selected.pixel_count.toLocaleString();
     drawChart(obs, index);
+    $("chart")
+      .querySelectorAll<SVGCircleElement>(".observation-point")
+      .forEach((point) =>
+        point.addEventListener("click", () =>
+          selectObservation(Number(point.dataset.index)),
+        ),
+      );
     const row = document.createElement("div");
     row.className = "scene-row";
     const title = document.createElement("strong");
@@ -770,6 +784,13 @@ function render(data: Result) {
       .forEach((button, buttonIndex) => {
         button.setAttribute("aria-pressed", String(buttonIndex === index));
       });
+    const selectedButton = observationList.querySelectorAll("button")[index];
+    if (selectedButton) {
+      observationList.scrollLeft =
+        selectedButton.offsetLeft -
+        observationList.offsetLeft -
+        (observationList.clientWidth - selectedButton.clientWidth) / 2;
+    }
   };
   for (const [index, observation] of obs.entries()) {
     const button = document.createElement("button");
@@ -815,6 +836,11 @@ function drawChart(
       '<div class="empty-state">No scenes matched. Try another date range or use the demo fixture.</div>';
     return;
   }
+  if (observations.every((o) => o.ndvi === null && o.ndmi === null)) {
+    $("chart").innerHTML =
+      '<div class="empty-state">No valid index values for these dates. Inspect the masks in the observation list.</div>';
+    return;
+  }
   if (observations.length === 1 && observations[0].ndvi_percentiles) {
     const observation = observations[0];
     const { p10, p50, p90 } = observation.ndvi_percentiles!;
@@ -846,10 +872,20 @@ function drawChart(
     pad -
     ((Math.max(lower, Math.min(1, v ?? 0)) - lower) / (1 - lower)) *
       (H - 2 * pad);
-  const path = (key: "ndvi" | "ndmi") =>
-    observations
-      .map((o, i) => `${i ? "L" : "M"}${x(i)},${y(o[key])}`)
+  const path = (key: "ndvi" | "ndmi") => {
+    let connected = false;
+    return observations
+      .map((o, i) => {
+        if (o[key] === null) {
+          connected = false;
+          return "";
+        }
+        const segment = `${connected ? "L" : "M"}${x(i)},${y(o[key])}`;
+        connected = true;
+        return segment;
+      })
       .join(" ");
+  };
   const safe = (value: string) =>
     value.replace(
       /[&<>"']/g,
@@ -865,7 +901,7 @@ function drawChart(
   const nodes = observations
     .map(
       (o, i) =>
-        `<circle cx="${x(i)}" cy="${y(o.ndvi)}" r="${i === selectedIndex ? 6 : 3.5}" fill="#c76a3d" stroke="${i === selectedIndex ? "#332e28" : "none"}" stroke-width="2"><title>${safe(o.date)} NDVI ${o.ndvi?.toFixed(3)}</title></circle>${o.ndmi === null ? "" : `<circle cx="${x(i)}" cy="${y(o.ndmi)}" r="3" fill="#4f8874"><title>${safe(o.date)} NDMI ${o.ndmi?.toFixed(3)}</title></circle>`}`,
+        `${o.ndvi === null ? "" : `<circle class="observation-point ndvi-point" data-index="${i}" cx="${x(i)}" cy="${y(o.ndvi)}" r="${i === selectedIndex ? 6 : 3.5}" fill="#c76a3d" stroke="${i === selectedIndex ? "#332e28" : "none"}" stroke-width="2"><title>${safe(o.date)} NDVI ${o.ndvi.toFixed(3)} · click to inspect</title></circle>`}${o.ndmi === null ? "" : `<circle class="observation-point" data-index="${i}" cx="${x(i)}" cy="${y(o.ndmi)}" r="3" fill="#4f8874"><title>${safe(o.date)} NDMI ${o.ndmi.toFixed(3)} · click to inspect</title></circle>`}`,
     )
     .join("");
   $("chart").innerHTML =

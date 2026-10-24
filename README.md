@@ -1,6 +1,6 @@
 # GeoCrop
 
-[Frontend release audit](docs/frontend-audit.md)
+[Frontend release audit](docs/frontend-audit.md) · [Product design brief](docs/design-brief.md)
 
 GeoCrop is a responsive satellite field notebook for exploring vegetation indicators over a field boundary. Its default selectable example uses bundled, dated Sentinel-2 pixels. It is decision support, not agronomic diagnosis or yield prediction.
 
@@ -10,11 +10,13 @@ GeoCrop is a responsive satellite field notebook for exploring vegetation indica
 
 [Mobile workflow screenshot](docs/screenshots/mobile.png)
 
+[Synthetic multi-date observation inspection](docs/screenshots/scene-inspection.png)
+
 ### Try it in one minute
 
 1. Open the live demo. The dashed outline marks a bundled Sentinel-2 scene from **9 June 2024**. Click **Select area**, draw a polygon anywhere inside the outline, then **Finish boundary** and **Analyze selected area**. The overlay and result use the same real pixels. [Implementation and scientific limits](docs/example-scene.md).
 2. Switch to **Synthetic time series** for an explicitly illustrative seasonal demo, or **Live catalog** to search and analyze other real Sentinel-2 scenes. [Live result screenshot](docs/screenshots/live-sentinel.png).
-3. Select a dated observation in the ledger to inspect its NDVI, cloud, and valid-pixel values. Open **Methods & provenance**, then export the CSV. See the [independent real-scene reference check](docs/science-validation.md) for one reproducible comparison and its scientific limits.
+3. Select a plotted index point or a dated observation in the ledger to inspect its NDVI, cloud, and valid-pixel values. Missing index values appear as gaps, not zero measurements. Open **Methods & provenance**, then export the CSV. See the [independent real-scene reference check](docs/science-validation.md) for one reproducible comparison and its scientific limits.
 
 ## Quick start
 

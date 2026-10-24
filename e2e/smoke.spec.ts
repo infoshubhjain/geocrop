@@ -18,6 +18,8 @@ test("production policy permits the default satellite tiles", async ({
 test("bundled Sentinel example shows its coverage and exports selected pixels", async ({
   page,
 }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "Field image lab" }),
@@ -47,6 +49,7 @@ test("bundled Sentinel example shows its coverage and exports selected pixels", 
   expect((await download).suggestedFilename()).toBe(
     "geocrop-field-observations.csv",
   );
+  expect(pageErrors).toEqual([]);
 });
 
 test("changing a boundary hides old statistics and prevents stale responses", async ({
@@ -207,6 +210,82 @@ test("synthetic time series remains labeled and hides the real-scene overlay", a
   await expect(
     page.locator('#chart circle[fill="#c76a3d"]').first(),
   ).toHaveAttribute("r", "6");
+  await page.locator("#chart .ndvi-point").last().click();
+  await expect(page.locator("#observation-list button").last()).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect
+    .poll(() =>
+      page
+        .locator("#observation-list button")
+        .last()
+        .evaluate((button) => {
+          const visible = button.parentElement!.getBoundingClientRect();
+          const selected = button.getBoundingClientRect();
+          return (
+            selected.left >= visible.left && selected.right <= visible.right
+          );
+        }),
+    )
+    .toBe(true);
+  await page.screenshot({
+    path: "docs/screenshots/scene-inspection.png",
+    fullPage: true,
+  });
+});
+
+test("missing vegetation values leave a gap instead of drawing zero", async ({
+  page,
+}) => {
+  await page.route("**/api/analysis/import", (route) =>
+    route.fulfill({
+      json: {
+        source: "user-import",
+        area_ha: 1,
+        observations: [
+          {
+            date: "2024-06-01",
+            ndvi: 0.3,
+            ndmi: null,
+            pixel_count: 10,
+            cloud_percent: null,
+            mask: "nodata",
+          },
+          {
+            date: "2024-06-10",
+            ndvi: null,
+            ndmi: null,
+            pixel_count: 0,
+            cloud_percent: null,
+            mask: "nodata",
+          },
+          {
+            date: "2024-06-20",
+            ndvi: 0.5,
+            ndmi: null,
+            pixel_count: 10,
+            cloud_percent: null,
+            mask: "nodata",
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/");
+  await page.getByLabel("DATA SOURCE").selectOption("import");
+  await page.locator("#raster-file").setInputFiles({
+    name: "sample.tif",
+    mimeType: "image/tiff",
+    buffer: Buffer.from("probe"),
+  });
+  await page.getByRole("button", { name: /Analyze imported GeoTIFF/ }).click();
+  await expect(page.locator("#chart .ndvi-point")).toHaveCount(2);
+  const path = await page.locator("#chart .line-ndvi").getAttribute("d");
+  expect(path?.match(/M/g)).toHaveLength(2);
+  expect(path).not.toContain("L");
+  await page.locator("#observation-list button").nth(1).click();
+  await expect(page.locator("#mean-ndvi")).toHaveText("—");
 });
 
 test("keyboard-friendly GeoJSON entry selects a boundary", async ({ page }) => {
